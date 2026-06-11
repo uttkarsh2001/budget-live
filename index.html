@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sprint Ledger · Ozi H20</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { background:#06080F; overscroll-behavior:none; }
+  ::selection { background:#7C5CFF44; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:0.01ms !important; transition-duration:0.01ms !important; }
+  }
+  .chip { transition: transform .15s cubic-bezier(.34,1.56,.64,1), box-shadow .15s; cursor:pointer; user-select:none; }
+  .chip:active { transform: scale(.94); }
+  .chip.lifted { transform: translateY(-6px) scale(1.04) rotate(-1deg); }
+  .dropzone { transition: all .2s; }
+  .dropzone.armed { cursor:pointer; }
+  .dropzone.armed:active { transform: scale(.985); }
+  @keyframes pulseRed { 0%,100%{ box-shadow:0 0 0 0 #FF3B5C33;} 50%{ box-shadow:0 0 16px 2px #FF3B5C55;} }
+  @keyframes breathe { 0%,100%{ opacity:.55;} 50%{ opacity:1;} }
+  .cell-done { box-shadow: 0 0 8px 1px var(--glow); }
+  .arm-hint { animation: breathe 1.6s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ============ DATA ============ */
+const TEAM = [
+  { id:"uttkarsh", name:"Uttkarsh", role:"Lead", initials:"UR", color:"#7C5CFF", budget:20, jiraNames:["uttkarsh"] },
+  { id:"vishal",   name:"Vishal Roy", role:"Full Stack", initials:"VR", color:"#00E5A0", budget:28, jiraNames:["vishal"] },
+  { id:"yash",     name:"Yash Jangir", role:"Flutter", initials:"YJ", color:"#FFB02E", budget:28, jiraNames:["yash jangir"] },
+  { id:"intern",   name:"Intern", role:"Support", initials:"IN", color:"#FF5C9D", budget:12, jiraNames:[] },
+];
+const DONE_COLOR = "#34F5A4";
+const SNAPSHOT = [
+  { key:"H20-1249", summary:"Re-structuring coupon", points:5, type:"Story", jira:"Rohitashwa Singh", jiraStatus:"To Do" },
+  { key:"H20-1248", summary:"[M] Category Coupon Logic handling", points:5, type:"Story", jira:"Rohitashwa Singh", jiraStatus:"To Do" },
+  { key:"H20-1244", summary:"[M] Coupon UI change on cart", points:3, type:"Story", jira:"Rohitashwa Singh", jiraStatus:"To Do" },
+  { key:"H20-1232", summary:"Checkout prompt for OOS cart items", points:null, type:"Bug", jira:"Rohitashwa Singh", jiraStatus:"To Do" },
+  { key:"H20-1255", summary:"Filters broken on orders page", points:null, type:"Bug", jira:"Aman Choudhary", jiraStatus:"To Do" },
+  { key:"H20-1209", summary:"Multiple campaign api calls on app start", points:null, type:"Bug", jira:"uttkarsh.rastogi", jiraStatus:"To Do" },
+  { key:"H20-1335", summary:"PLP hide empty top rail categories", points:5, type:"Story", jira:"S Naman Saxena", jiraStatus:"To Do" },
+  { key:"H20-1216", summary:"Fix age filter overlap logic", points:1, type:"Story", jira:"Rohan Mehta", jiraStatus:"To Do" },
+  { key:"H20-1288", summary:"QA verify changes e2e", points:5, type:"Story", jira:"Yash Allabadi", jiraStatus:"To Do" },
+  { key:"H20-1241", summary:"Testing and final deployment", points:3, type:"Story", jira:"Rohitashwa Singh", jiraStatus:"To Do" },
+  { key:"H20-631",  summary:"Shorebird Ph3 Android dev-cycle testing", points:5, type:"Story", jira:"uttkarsh.rastogi", jiraStatus:"To Do" },
+  { key:"H20-632",  summary:"Shorebird Ph4 iOS + Go/No-Go", points:null, type:"Story", jira:"uttkarsh.rastogi", jiraStatus:"To Do" },
+  { key:"H20-1239", summary:"Slack bot creation", points:2, type:"Story", jira:"Rohitashwa Singh", jiraStatus:"To Do" },
+  { key:"H20-1240", summary:"Slack bot command integration", points:2, type:"Story", jira:"Rohitashwa Singh", jiraStatus:"To Do" },
+];
+const POINT_OPTS = [1,2,3,5,8];
+const STATUS_CYCLE = { todo:"doing", doing:"done", done:"todo" };
+
+/* ============ HELPERS ============ */
+const load = (k, f) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : f; } catch { return f; } };
+const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+const autoMap = n => { if(!n) return null; const l=n.toLowerCase(); for(const m of TEAM) if(m.jiraNames.some(x=>l.includes(x))) return m.id; return null; };
+const mapJiraStatus = s => { if(!s) return "todo"; const l=s.toLowerCase();
+  if(l.includes("done")||l.includes("closed")||l.includes("resolved")) return "done";
+  if(l.includes("progress")||l.includes("review")) return "doing"; return "todo"; };
+const chipSize = p => p>=8 ? 64 : p>=5 ? 56 : p>=3 ? 48 : p>=2 ? 42 : 38;
+
+/* Animated number */
+function Num({ value, style }) {
+  const ref = useRef(null);
+  const prev = useRef(value);
+  useEffect(() => {
+    const el = ref.current; if(!el) return;
+    const obj = { v: prev.current };
+    gsap.to(obj, { v:value, duration:.6, ease:"power2.out", onUpdate:()=>{ el.textContent = Math.round(obj.v); } });
+    prev.current = value;
+  }, [value]);
+  return <span ref={ref} style={style}>{value}</span>;
+}
+
+/* Capacity cells */
+function Cells({ budget, planned, done, color }) {
+  const n = Math.ceil(budget/2);
+  const plannedCells = (planned/budget)*n;
+  const doneCells = (done/budget)*n;
+  return (
+    <div style={{ display:"flex", gap:3, height:14 }}>
+      {Array.from({length:n}).map((_,i)=>{
+        const isDone = i < Math.floor(doneCells) || (i < doneCells && doneCells-i > .5);
+        const isPlanned = i < plannedCells;
+        return <div key={i} className={isDone?"cell-done":""} style={{
+          flex:1, borderRadius:3, "--glow": DONE_COLOR+"66",
+          background: isDone ? DONE_COLOR : isPlanned ? color+"55" : "#141A28",
+          border: `1px solid ${isDone ? DONE_COLOR : isPlanned ? color+"33" : "#1B2336"}`,
+          transition:"background .35s, box-shadow .35s",
+          transitionDelay: `${i*25}ms`,
+        }}/>;
+      })}
+    </div>
+  );
+}
+
+/* ============ APP ============ */
+function App() {
+  const [issues, setIssues] = useState([]);
+  const [src, setSrc] = useState("…");
+  const [assignments, setAssignments] = useState(()=>load("budget:assignments",{}));
+  const [excluded, setExcluded] = useState(()=>load("budget:excluded",{}));
+  const [overridePoints, setOverridePoints] = useState(()=>load("budget:points",{}));
+  const [statuses, setStatuses] = useState(()=>load("budget:statuses",{}));
+  const [picked, setPicked] = useState(null);          // selected ticket key
+  const [loading, setLoading] = useState(true);
+  const rootRef = useRef(null);
+  const memberRefs = useRef({});
+  const chipRefs = useRef({});
+
+  useEffect(()=>{ refresh(); },[]);
+  useEffect(()=>{
+    if(!loading && rootRef.current){
+      gsap.fromTo(rootRef.current.querySelectorAll(".stagger"),
+        { y:18, opacity:0 }, { y:0, opacity:1, duration:.55, stagger:.06, ease:"power3.out" });
+    }
+  },[loading]);
+
+  async function refresh(){
+    setLoading(true);
+    let data = null;
+    try {
+      const r = await fetch("/api/issues");
+      if(r.ok){ const j = await r.json(); if(j.issues) { data = j.issues; setSrc("live · jira"); } }
+    } catch {}
+    if(!data){ data = SNAPSHOT; setSrc("snapshot · jun 11"); }
+    setIssues(data);
+    setAssignments(prev=>{ const n={...prev};
+      data.forEach(i=>{ if(n[i.key]===undefined){ const m=autoMap(i.jira); if(m) n[i.key]=m; } });
+      save("budget:assignments",n); return n; });
+    setStatuses(prev=>{ const n={...prev};
+      data.forEach(i=>{ if(n[i.key]===undefined) n[i.key]=mapJiraStatus(i.jiraStatus); });
+      save("budget:statuses",n); return n; });
+    setLoading(false);
+  }
+
+  const pts = i => overridePoints[i.key] ?? i.points ?? 0;
+  const statusOf = k => statuses[k] || "todo";
+
+  const place = useCallback((ticketKey, memberId)=>{
+    /* fly animation: clone chip to member card */
+    const chipEl = chipRefs.current[ticketKey];
+    const memberEl = memberRefs.current[memberId];
+    if(chipEl && memberEl){
+      const c = chipEl.getBoundingClientRect();
+      const m = memberEl.getBoundingClientRect();
+      const ghost = chipEl.cloneNode(true);
+      Object.assign(ghost.style,{ position:"fixed", left:c.left+"px", top:c.top+"px", width:c.width+"px",
+        height:c.height+"px", zIndex:999, pointerEvents:"none", margin:0 });
+      document.body.appendChild(ghost);
+      gsap.to(ghost,{ left:m.left+m.width/2-c.width/2, top:m.top+20, scale:.4, opacity:0,
+        duration:.5, ease:"power2.in", onComplete:()=>ghost.remove() });
+      gsap.fromTo(memberEl,{ scale:1 },{ scale:1.015, duration:.12, yoyo:true, repeat:1, ease:"power2.out" });
+    }
+    setAssignments(prev=>{ const n={...prev,[ticketKey]:memberId}; save("budget:assignments",n); return n; });
+    setPicked(null);
+  },[]);
+
+  const unassign = k => setAssignments(prev=>{ const n={...prev,[k]:null}; save("budget:assignments",n); return n; });
+  const cycleStatus = k => setStatuses(prev=>{ const n={...prev,[k]:STATUS_CYCLE[statusOf(k)]}; save("budget:statuses",n); return n; });
+  const setPts = (k,v) => setOverridePoints(prev=>{ const n={...prev,[k]:v}; save("budget:points",n); return n; });
+  const exclude = k => { setExcluded(prev=>{ const n={...prev,[k]:true}; save("budget:excluded",n); return n; }); setPicked(null); };
+  const restoreAll = () => { setExcluded({}); save("budget:excluded",{}); };
+
+  const active = issues.filter(i=>!excluded[i.key]);
+  const pool = active.filter(i=>!assignments[i.key]);
+  const loadOf = id => active.filter(i=>assignments[i.key]===id).reduce((s,i)=>s+pts(i),0);
+  const doneOf = id => active.filter(i=>assignments[i.key]===id && statusOf(i.key)==="done").reduce((s,i)=>s+pts(i),0);
+  const totalBudget = TEAM.reduce((s,m)=>s+m.budget,0);
+  const totalLoad = TEAM.reduce((s,m)=>s+loadOf(m.id),0);
+  const totalDone = TEAM.reduce((s,m)=>s+doneOf(m.id),0);
+  const excludedCount = Object.values(excluded).filter(Boolean).length;
+  const pickedIssue = picked ? active.find(i=>i.key===picked) : null;
+
+  /* dial geometry */
+  const R = 52, C = 2*Math.PI*R;
+  const arcPlanned = Math.min(totalLoad/totalBudget,1)*C*.75;
+  const arcDone = Math.min(totalDone/totalBudget,1)*C*.75;
+
+  if(loading) return (
+    <div style={{ minHeight:"100vh", display:"grid", placeItems:"center", fontFamily:"'Space Grotesk'" }}>
+      <div style={{ textAlign:"center" }}>
+        <div style={{ fontSize:11, letterSpacing:".3em", color:"#7C5CFF", textTransform:"uppercase", marginBottom:10 }}>Sprint Ledger</div>
+        <div style={{ width:34, height:34, border:"3px solid #141A28", borderTopColor:"#7C5CFF", borderRadius:"50%", margin:"0 auto", animation:"spin .7s linear infinite" }}/>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    </div>
+  );
+
+  return (
+    <div ref={rootRef} style={{ fontFamily:"'Space Grotesk',-apple-system,sans-serif", color:"#E6EAF3",
+      minHeight:"100vh", maxWidth:480, margin:"0 auto", padding:"22px 16px 120px",
+      background:"radial-gradient(900px 500px at 50% -10%, #10142455, transparent), #06080F" }}>
+
+      {/* ===== HEADER + DIAL ===== */}
+      <div className="stagger" style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+        <div>
+          <div style={{ fontSize:10, letterSpacing:".32em", color:"#7C5CFF", textTransform:"uppercase", fontWeight:600 }}>Sprint Ledger</div>
+          <div style={{ fontSize:26, fontWeight:700, letterSpacing:"-.02em", marginTop:2 }}>OLC & Coupons</div>
+          <div style={{ fontSize:10, color:"#3A4358", marginTop:3, fontFamily:"'JetBrains Mono'" }}>{src}</div>
+        </div>
+        <button onClick={refresh} aria-label="Refresh from Jira" style={{ width:40, height:40, borderRadius:12, border:"1px solid #1B2336",
+          background:"#0D111C", color:"#8B93A7", fontSize:16, cursor:"pointer" }}>↻</button>
+      </div>
+
+      <div className="stagger" style={{ display:"flex", alignItems:"center", gap:18, background:"#0D111C",
+        border:"1px solid #161D2E", borderRadius:20, padding:"16px 18px", marginBottom:14 }}>
+        <svg width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="Sprint progress dial">
+          <g transform="rotate(135 60 60)">
+            <circle cx="60" cy="60" r={R} fill="none" stroke="#141A28" strokeWidth="9" strokeDasharray={`${C*.75} ${C}`} strokeLinecap="round"/>
+            <circle cx="60" cy="60" r={R} fill="none" stroke="#7C5CFF55" strokeWidth="9" strokeDasharray={`${arcPlanned} ${C}`} strokeLinecap="round"/>
+            <circle cx="60" cy="60" r={R} fill="none" stroke={DONE_COLOR} strokeWidth="9" strokeDasharray={`${arcDone} ${C}`} strokeLinecap="round"
+              style={{ filter:`drop-shadow(0 0 6px ${DONE_COLOR}66)`, transition:"stroke-dasharray .6s ease" }}/>
+          </g>
+          <text x="60" y="56" textAnchor="middle" fill="#E6EAF3" fontSize="24" fontWeight="700" fontFamily="Space Grotesk"><Num value={totalDone}/></text>
+          <text x="60" y="74" textAnchor="middle" fill="#3A4358" fontSize="10" fontFamily="JetBrains Mono">of {totalLoad} pts</text>
+        </svg>
+        <div style={{ flex:1 }}>
+          {[["Done", totalDone, DONE_COLOR],["Planned", totalLoad, "#7C5CFF"],["Capacity", totalBudget, "#3A4358"]].map(([l,v,c])=>(
+            <div key={l} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0",
+              borderBottom: l!=="Capacity" ? "1px solid #11182A" : "none" }}>
+              <span style={{ fontSize:11, color:"#6B7488", display:"flex", alignItems:"center", gap:6 }}>
+                <span style={{ width:7, height:7, borderRadius:2, background:c }}/>{l}
+              </span>
+              <Num value={v} style={{ fontSize:16, fontWeight:700, color: l==="Capacity"?"#6B7488":"#E6EAF3", fontFamily:"'JetBrains Mono'" }}/>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ===== PLACING BANNER ===== */}
+      {pickedIssue && (
+        <div className="arm-hint" style={{ position:"sticky", top:8, zIndex:50, background:"#7C5CFF",
+          borderRadius:14, padding:"10px 14px", marginBottom:12, display:"flex", alignItems:"center", gap:10,
+          boxShadow:"0 8px 28px #7C5CFF44" }}>
+          <span style={{ fontFamily:"'JetBrains Mono'", fontSize:11, fontWeight:700, color:"#0A0618" }}>{pickedIssue.key}</span>
+          <span style={{ flex:1, fontSize:12, color:"#1A1033", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+            → tap a person below
+          </span>
+          <button onClick={()=>setPicked(null)} style={{ border:"none", background:"#0A061833", color:"#0A0618",
+            borderRadius:8, padding:"4px 10px", fontSize:11, fontWeight:700, cursor:"pointer" }}>cancel</button>
+        </div>
+      )}
+
+      {/* ===== MEMBER VESSELS ===== */}
+      {TEAM.map(m=>{
+        const l = loadOf(m.id), d = doneOf(m.id), over = l > m.budget;
+        const mine = active.filter(i=>assignments[i.key]===m.id);
+        const armed = !!picked;
+        return (
+          <div key={m.id} ref={el=>memberRefs.current[m.id]=el}
+            className={`stagger dropzone ${armed?"armed":""}`}
+            onClick={armed ? ()=>place(picked, m.id) : undefined}
+            style={{ background:"#0D111C", borderRadius:18, padding:14, marginBottom:10,
+              border: armed ? `1.5px dashed ${m.color}` : over ? "1px solid #FF3B5C44" : "1px solid #161D2E",
+              animation: over ? "pulseRed 2s infinite" : "none",
+              boxShadow: armed ? `0 0 24px ${m.color}22` : "none" }}>
+
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:9 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+                <div style={{ width:32, height:32, borderRadius:10, background:`linear-gradient(135deg, ${m.color}33, ${m.color}11)`,
+                  border:`1px solid ${m.color}44`, display:"grid", placeItems:"center",
+                  fontSize:11, fontWeight:700, color:m.color }}>{m.initials}</div>
+                <div>
+                  <div style={{ fontSize:14, fontWeight:700, letterSpacing:"-.01em" }}>{m.name}</div>
+                  <div style={{ fontSize:10, color:"#4A5468" }}>{m.role}</div>
+                </div>
+              </div>
+              <div style={{ textAlign:"right", fontFamily:"'JetBrains Mono'" }}>
+                <div style={{ fontSize:16, fontWeight:700 }}>
+                  <span style={{ color:DONE_COLOR }}><Num value={d}/></span>
+                  <span style={{ color: over?"#FF3B5C":m.color }}>/<Num value={l}/></span>
+                  <span style={{ fontSize:11, color:"#3A4358" }}>/{m.budget}</span>
+                </div>
+                {over && <div style={{ fontSize:9, color:"#FF3B5C", fontWeight:700 }}>+{l-m.budget} OVER</div>}
+              </div>
+            </div>
+
+            <Cells budget={m.budget} planned={l} done={d} color={m.color}/>
+
+            {mine.length>0 && (
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:10 }}>
+                {mine.map(i=>{
+                  const st = statusOf(i.key);
+                  const isDone = st==="done", isDoing = st==="doing";
+                  return (
+                    <div key={i.key} onClick={e=>{ e.stopPropagation(); cycleStatus(i.key); }}
+                      onDoubleClick={e=>{ e.stopPropagation(); unassign(i.key); }}
+                      title={`${i.summary} — tap: cycle status · double-tap: unassign`}
+                      style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 9px", borderRadius:9, cursor:"pointer",
+                        background: isDone ? DONE_COLOR+"14" : "#0A0E18",
+                        border:`1px solid ${isDone ? DONE_COLOR+"55" : isDoing ? "#3D8BFF66" : "#1B2336"}`,
+                        opacity: isDone ? .75 : 1 }}>
+                      <span style={{ width:6, height:6, borderRadius:"50%",
+                        background: isDone ? DONE_COLOR : isDoing ? "#3D8BFF" : "#4A5468",
+                        boxShadow: isDone ? `0 0 6px ${DONE_COLOR}` : "none" }}/>
+                      <span style={{ fontFamily:"'JetBrains Mono'", fontSize:10, fontWeight:700,
+                        color: isDone ? DONE_COLOR : "#8B93A7",
+                        textDecoration: isDone ? "line-through" : "none" }}>{i.key.replace("H20-","#")}</span>
+                      <span style={{ fontSize:10, fontWeight:700, fontFamily:"'JetBrains Mono'",
+                        color: isDone ? DONE_COLOR : m.color }}>{pts(i)||"?"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* ===== POOL ===== */}
+      <div className="stagger" style={{ marginTop:20 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:10 }}>
+          <div style={{ fontSize:11, letterSpacing:".24em", color:"#4A5468", textTransform:"uppercase", fontWeight:600 }}>
+            The Pool · {pool.length}
+          </div>
+          <div style={{ fontSize:10, color:"#3A4358" }}>tap a chip to pick it up</div>
+        </div>
+
+        {pool.length===0 ? (
+          <div style={{ textAlign:"center", padding:"28px 0", color:"#3A4358", fontSize:13,
+            border:"1px dashed #1B2336", borderRadius:16 }}>
+            Pool's empty — sprint is fully dealt ✦
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexWrap:"wrap", gap:9 }}>
+            {pool.map(i=>{
+              const p = pts(i), s = chipSize(p||1);
+              const isPicked = picked===i.key;
+              return (
+                <div key={i.key} ref={el=>chipRefs.current[i.key]=el}
+                  className={`chip ${isPicked?"lifted":""}`}
+                  onClick={()=>setPicked(isPicked?null:i.key)}
+                  style={{ width: p ? "auto" : "100%", minWidth: s+40,
+                    background: isPicked ? "linear-gradient(135deg,#171231,#0D111C)" : "#0D111C",
+                    border: isPicked ? "1.5px solid #7C5CFF" : i.type==="Bug" ? "1px solid #FF3B5C33" : "1px solid #1B2336",
+                    borderRadius:14, padding:"10px 12px",
+                    boxShadow: isPicked ? "0 12px 32px #7C5CFF33" : "0 2px 8px #00000040",
+                    display:"flex", alignItems:"center", gap:10 }}>
+                  <div style={{ width:s*.62, height:s*.62, minWidth:s*.62, borderRadius:"50%",
+                    background: p ? "radial-gradient(circle at 32% 30%, #232B44, #11182A)" : "#1A1020",
+                    border: p ? "1px solid #2A3450" : "1px dashed #FFB02E66",
+                    display:"grid", placeItems:"center",
+                    fontFamily:"'JetBrains Mono'", fontWeight:700,
+                    fontSize: p>=8?17:p>=5?15:13,
+                    color: p ? "#E6EAF3" : "#FFB02E" }}>{p||"?"}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                      <span style={{ fontFamily:"'JetBrains Mono'", fontSize:10, fontWeight:700, color:"#7C5CFF" }}>{i.key}</span>
+                      {i.type==="Bug" && <span style={{ fontSize:8, fontWeight:700, color:"#FF3B5C", letterSpacing:".1em" }}>BUG</span>}
+                    </div>
+                    <div style={{ fontSize:11.5, color:"#8B93A7", lineHeight:1.3, marginTop:2,
+                      overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{i.summary}</div>
+                    {!p && isPicked && (
+                      <div style={{ display:"flex", gap:4, marginTop:7 }} onClick={e=>e.stopPropagation()}>
+                        {POINT_OPTS.map(o=>(
+                          <button key={o} onClick={()=>setPts(i.key,o)} style={{
+                            padding:"3px 9px", borderRadius:6, border:"none", cursor:"pointer",
+                            fontFamily:"'JetBrains Mono'", fontSize:10, fontWeight:700,
+                            background:"#1B2336", color:"#8B93A7" }}>{o}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {isPicked && (
+                    <button onClick={e=>{ e.stopPropagation(); exclude(i.key); }} title="Not this sprint"
+                      style={{ border:"none", background:"#1B2336", color:"#4A5468", borderRadius:8,
+                        width:26, height:26, cursor:"pointer", fontSize:12 }}>✕</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {excludedCount>0 && (
+          <div style={{ marginTop:12, fontSize:11, color:"#3A4358", textAlign:"center" }}>
+            {excludedCount} parked outside this sprint ·{" "}
+            <span onClick={restoreAll} style={{ color:"#7C5CFF", cursor:"pointer", textDecoration:"underline" }}>bring back</span>
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop:26, textAlign:"center", fontSize:9, color:"#252D40", fontFamily:"'JetBrains Mono'", letterSpacing:".1em" }}>
+        TAP CHIP → TAP PERSON · TAP TICKET = STATUS · DOUBLE-TAP = UNASSIGN
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
