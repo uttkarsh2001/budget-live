@@ -1,5 +1,4 @@
-// Vercel serverless function — live H20 issues for the frontend team
-// Pulls: tickets assigned to Uttkarsh / Vishal / Yash + unassigned tickets
+// Vercel serverless — live H20 issues for the frontend team + history for velocity
 
 export default async function handler(req, res) {
   const JIRA_EMAIL = process.env.JIRA_EMAIL;
@@ -10,7 +9,6 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "JIRA_EMAIL and JIRA_TOKEN env vars not configured" });
   }
 
-  // Team accountIds (stable even if display names change)
   const TEAM_ACCOUNTS = [
     "712020:ca6db9cf-d6a5-473e-84af-009f8d76d495", // Uttkarsh Rastogi
     "712020:4425e44f-3c52-44cb-9b4f-f4b5bedd05a2", // Vishal Roy
@@ -19,17 +17,17 @@ export default async function handler(req, res) {
 
   const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString("base64");
   const assigneeList = TEAM_ACCOUNTS.map(a => `"${a}"`).join(",");
+  // current work (30d) + completed history (56d) for velocity trend
   const jql = encodeURIComponent(
-    `project = H20 AND status in ("To Do", "In Progress", "Done") ` +
-    `AND issuetype in (Story, Bug, Task) ` +
+    `project = H20 AND issuetype in (Story, Bug, Task) ` +
     `AND (assignee in (${assigneeList}) OR assignee is EMPTY) ` +
-    `AND created >= -30d ORDER BY created DESC`
+    `AND (created >= -30d OR resolutiondate >= -56d) ORDER BY created DESC`
   );
-  const fields = "summary,customfield_10016,issuetype,assignee,status";
+  const fields = "summary,customfield_10016,issuetype,assignee,status,created,resolutiondate";
 
   try {
     const r = await fetch(
-      `https://${JIRA_SITE}/rest/api/3/search/jql?jql=${jql}&fields=${fields}&maxResults=50`,
+      `https://${JIRA_SITE}/rest/api/3/search/jql?jql=${jql}&fields=${fields}&maxResults=100`,
       { headers: { Authorization: `Basic ${auth}`, Accept: "application/json" } }
     );
     if (!r.ok) {
@@ -44,6 +42,8 @@ export default async function handler(req, res) {
       type: i.fields?.issuetype?.name || "Task",
       jira: i.fields?.assignee?.displayName || null,
       jiraStatus: i.fields?.status?.name || "To Do",
+      created: i.fields?.created || null,
+      resolved: i.fields?.resolutiondate || null,
     }));
     res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
     return res.status(200).json({ issues, syncedAt: new Date().toISOString() });
