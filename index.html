@@ -45,11 +45,15 @@
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 /* ============ CONFIG ============ */
-const TEAM = [
+const DEFAULT_TEAM = [
   { id:"uttkarsh", name:"Uttkarsh", role:"Lead", initials:"UR", color:"#7C5CFF", budget:20, jiraNames:["uttkarsh"] },
   { id:"vishal",   name:"Vishal Roy", role:"Full Stack", initials:"VR", color:"#00E5A0", budget:28, jiraNames:["vishal roy","vishal"] },
   { id:"yash",     name:"Yash Jangir", role:"Flutter", initials:"YJ", color:"#FFB02E", budget:28, jiraNames:["yash jangir"] },
   { id:"intern",   name:"Intern", role:"Support", initials:"IN", color:"#FF5C9D", budget:12, jiraNames:[] },
+];
+const COLOR_PALETTE = [
+  "#7C5CFF","#00E5A0","#FFB02E","#FF5C9D","#3D8BFF","#FF6B35",
+  "#A855F7","#06B6D4","#F43F5E","#84CC16","#EC4899","#F59E0B",
 ];
 const DONE_COLOR = "#34F5A4";
 const POINT_OPTS = [1,2,3,5,8];
@@ -67,7 +71,7 @@ const SNAPSHOT = [
 /* ============ HELPERS ============ */
 const load = (k,f)=>{ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):f; }catch{ return f; } };
 const save = (k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} };
-const autoMap = n=>{ if(!n) return null; const l=n.toLowerCase(); for(const m of TEAM) if(m.jiraNames.some(x=>l.includes(x))) return m.id; return null; };
+const autoMap = (n,team)=>{ if(!n) return null; const l=n.toLowerCase(); for(const m of team) if(m.jiraNames.some(x=>l.includes(x))) return m.id; return null; };
 const mapJiraStatus = s=>{ if(!s) return "todo"; const l=s.toLowerCase();
   if(l.includes("done")||l.includes("closed")||l.includes("resolved")) return "done";
   if(l.includes("progress")||l.includes("review")) return "doing"; return "todo"; };
@@ -176,6 +180,10 @@ function App() {
   const [sprintWeeks, setSprintWeeks] = useState(()=>load("budget:sprintWeeks", 2));
   const [infoTip, setInfoTip] = useState(null);
   const [selectedEpic, setSelectedEpic] = useState("all");
+  const [team, setTeam] = useState(()=>load("budget:team", DEFAULT_TEAM));
+  const [teamEditorOpen, setTeamEditorOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState(null); // null=list, "new"=add, {member}=edit
+  const setTeamSaved = t=>{ setTeam(t); save("budget:team",t); };
   const rootRef = useRef(null);
   const memberRefs = useRef({});
   const chipRefs = useRef({});
@@ -206,11 +214,11 @@ function App() {
 
   /* OPTION A — assignment resolution: Jira assignee always wins; local only fills gaps */
   const memberOf = useCallback(i=>{
-    const jiraMember = autoMap(i.jira);
+    const jiraMember = autoMap(i.jira,team);
     if(jiraMember) return jiraMember;
     return localAssign[i.key] || null;
-  },[localAssign]);
-  const isJiraLocked = i => !!autoMap(i.jira);
+  },[localAssign,team]);
+  const isJiraLocked = i => !!autoMap(i.jira,team);
 
   const pts = i => overridePoints[i.key] ?? i.points ?? 0;
   const statusOf = k => statuses[k] || "todo";
@@ -256,8 +264,8 @@ function App() {
   const ofMember = id => active.filter(i=>memberOf(i)===id);
   const loadOf = id => ofMember(id).reduce((s,i)=>s+pts(i),0);
   const doneOf = id => ofMember(id).filter(i=>statusOf(i.key)==="done").reduce((s,i)=>s+pts(i),0);
-  const totalLoad = TEAM.reduce((s,m)=>s+loadOf(m.id),0);
-  const totalDone = TEAM.reduce((s,m)=>s+doneOf(m.id),0);
+  const totalLoad = team.reduce((s,m)=>s+loadOf(m.id),0);
+  const totalDone = team.reduce((s,m)=>s+doneOf(m.id),0);
   const excludedCount = Object.values(excluded).filter(Boolean).length;
   const pickedIssue = picked ? active.find(i=>i.key===picked) : null;
 
@@ -268,7 +276,7 @@ function App() {
       const arr = Array(WEEKS).fill(0);
       issues.forEach(i=>{
         if(!i.resolved) return;
-        const m = autoMap(i.jira);
+        const m = autoMap(i.jira,team);
         if(id!=="team" && m!==id) return;
         const idx = WEEKS-1 - Math.floor((now - new Date(i.resolved).getTime())/wk);
         if(idx>=0 && idx<WEEKS) arr[idx] += (i.points||0);
@@ -276,27 +284,27 @@ function App() {
       return arr;
     };
     const cycleAvg = id => {
-      const done = issues.filter(i=>i.resolved && i.created && (id==="team" || autoMap(i.jira)===id));
+      const done = issues.filter(i=>i.resolved && i.created && (id==="team" || autoMap(i.jira,team)===id));
       if(!done.length) return null;
       return done.reduce((s,i)=>s+(new Date(i.resolved)-new Date(i.created))/(24*3600*1000),0)/done.length;
     };
     const out = { team:{ weeks:buckets("team"), cycle:cycleAvg("team") } };
-    TEAM.forEach(m=>{ out[m.id] = { weeks:buckets(m.id), cycle:cycleAvg(m.id) }; });
+    team.forEach(m=>{ out[m.id] = { weeks:buckets(m.id), cycle:cycleAvg(m.id) }; });
     return out;
-  },[issues]);
+  },[issues,team]);
 
   const weeklyAvg = w => { const nz=w.filter(x=>x>0); return nz.length? Math.round(w.reduce((a,b)=>a+b,0)/Math.max(nz.length,1)) : 0; };
   const efficiency = id => { const l=loadOf(id); return l? Math.round((doneOf(id)/l)*100) : null; };
 
   const budgetOf = useCallback(id => {
-    const m = TEAM.find(x => x.id === id);
+    const m = team.find(x => x.id === id);
     const v = velocity[id];
     const avg = v ? weeklyAvg(v.weeks) : 0;
     const computed = avg * sprintWeeks;
     return computed > 0 ? computed : (m ? m.budget : 15);
-  }, [velocity, sprintWeeks]);
+  }, [velocity, sprintWeeks, team]);
 
-  const totalBudget = TEAM.reduce((s,m)=>s+budgetOf(m.id),0);
+  const totalBudget = team.reduce((s,m)=>s+budgetOf(m.id),0);
 
   const R=52, C=2*Math.PI*R;
   const arcPlanned=Math.min(totalLoad/totalBudget,1)*C*.75;
@@ -312,7 +320,7 @@ function App() {
     </div>
   );
 
-  const detailMember = devDetail ? TEAM.find(m=>m.id===devDetail) : null;
+  const detailMember = devDetail ? team.find(m=>m.id===devDetail) : null;
 
   return (
     <div ref={rootRef} style={{ fontFamily:"'Space Grotesk',-apple-system,sans-serif", color:"#E6EAF3", minHeight:"100vh",
@@ -340,8 +348,12 @@ function App() {
               <span style={{ fontSize:10, color:"#3A4358", fontFamily:"'JetBrains Mono'" }}>· {src}</span>
             </div>
           </div>
-          <button onClick={refresh} aria-label="Refresh" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
+          <div style={{ display:"flex", gap:6 }}>
+            <button onClick={()=>{ setTeamEditorOpen(true); setEditingMember(null); }} aria-label="Team" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
+              background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>⚙</button>
+            <button onClick={refresh} aria-label="Refresh" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
               background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>↻</button>
+          </div>
         </div>
 
         {/* Epic filter dropdown */}
@@ -429,7 +441,7 @@ function App() {
         )}
 
         <div className="vessel-grid">
-        {TEAM.map(m=>{
+        {team.map(m=>{
           const b=budgetOf(m.id), l=loadOf(m.id), d=doneOf(m.id), over=l>b;
           const mine=ofMember(m.id);
           const armed=!!picked;
@@ -671,9 +683,213 @@ function App() {
         </div>
       </div>
     )}
+    {/* ============ TEAM EDITOR DRAWER ============ */}
+    {teamEditorOpen && (
+      <div onClick={()=>{ setTeamEditorOpen(false); setEditingMember(null); }} style={{ position:"fixed", inset:0, background:"#06080FCC",
+        backdropFilter:"blur(4px)", zIndex:100, display:"flex", justifyContent:"flex-end" }}>
+        <div className="drawer" onClick={e=>e.stopPropagation()} style={{ width:"min(420px, 100vw)", height:"100vh",
+          overflowY:"auto", background:"#0A0E18", borderLeft:"1px solid #7C5CFF33", padding:"24px 22px" }}>
+
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+            <div>
+              <div style={{ fontSize:10, letterSpacing:".32em", color:"#7C5CFF", textTransform:"uppercase", fontWeight:600 }}>Sprint Ledger</div>
+              <div style={{ fontSize:19, fontWeight:700, marginTop:2 }}>{editingMember ? (editingMember==="new"?"Add Member":"Edit Member") : "Team"}</div>
+            </div>
+            <button onClick={()=>{ if(editingMember){ setEditingMember(null); } else { setTeamEditorOpen(false); } }}
+              style={{ width:34, height:34, borderRadius:10, border:"1px solid #1B2336",
+              background:"#0D111C", color:"#6B7488", cursor:"pointer", fontSize:14 }}>{editingMember?"←":"✕"}</button>
+          </div>
+
+          {!editingMember ? (
+            /* ---- Member list ---- */
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {team.map(m=>(
+                <div key={m.id} style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"12px 14px",
+                  display:"flex", alignItems:"center", gap:10 }}>
+                  <div style={{ width:34, height:34, borderRadius:10, background:`linear-gradient(135deg, ${m.color}33, ${m.color}11)`,
+                    border:`1px solid ${m.color}44`, display:"grid", placeItems:"center", fontSize:11, fontWeight:700, color:m.color, flexShrink:0 }}>{m.initials}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:700 }}>{m.name}</div>
+                    <div style={{ fontSize:10, color:"#4A5468" }}>{m.role} · {m.budget} pts · {m.jiraNames.length? m.jiraNames.join(", ") : "no jira link"}</div>
+                  </div>
+                  <button onClick={()=>setEditingMember({...m})} style={{ width:28, height:28, borderRadius:8, border:"1px solid #1B2336",
+                    background:"transparent", color:"#6B7488", cursor:"pointer", fontSize:12 }}>✎</button>
+                  <button onClick={()=>{
+                    if(!confirm(`Remove ${m.name}? Their local assignments will go back to the pool.`)) return;
+                    const next = team.filter(x=>x.id!==m.id);
+                    setTeamSaved(next);
+                    setLocalAssign(prev=>{ const n={...prev}; Object.keys(n).forEach(k=>{ if(n[k]===m.id) n[k]=null; }); save("budget:assignments",n); return n; });
+                  }} style={{ width:28, height:28, borderRadius:8, border:"1px solid #1B2336",
+                    background:"transparent", color:"#FF3B5C88", cursor:"pointer", fontSize:12 }}>✕</button>
+                </div>
+              ))}
+
+              {/* Add member button */}
+              <div onClick={()=>setEditingMember("new")} style={{ border:"1px dashed #1B2336", borderRadius:14, padding:"14px",
+                textAlign:"center", cursor:"pointer", color:"#4A5468", fontSize:12, fontWeight:600 }}>
+                + Add Member
+              </div>
+
+              {/* Reset to defaults */}
+              <div style={{ marginTop:8, fontSize:11, color:"#3A4358", textAlign:"center" }}>
+                <span onClick={()=>{ if(!confirm("Reset team to defaults? This will remove custom members.")) return; setTeamSaved(DEFAULT_TEAM); }}
+                  style={{ color:"#7C5CFF", cursor:"pointer", textDecoration:"underline" }}>Reset to Default Team</span>
+              </div>
+            </div>
+          ) : (
+            /* ---- Add / Edit form ---- */
+            <MemberForm
+              initial={editingMember==="new" ? null : editingMember}
+              team={team}
+              onSave={member=>{
+                if(editingMember==="new"){
+                  setTeamSaved([...team, member]);
+                } else {
+                  setTeamSaved(team.map(m=>m.id===member.id ? member : m));
+                }
+                setEditingMember(null);
+              }}
+              onCancel={()=>setEditingMember(null)}
+            />
+          )}
+        </div>
+      </div>
+    )}
     </div>
   );
 }
+
+/* ============ MEMBER FORM ============ */
+function MemberForm({ initial, team, onSave, onCancel }) {
+  const deriveInitials = name => {
+    const parts = name.trim().split(/\s+/);
+    if(parts.length>=2) return (parts[0][0]+parts[1][0]).toUpperCase();
+    return name.slice(0,2).toUpperCase();
+  };
+  const deriveId = name => {
+    const base = name.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
+    let id = base;
+    let i = 2;
+    while(team.some(m=>m.id===id)) { id = base+"-"+i; i++; }
+    return id;
+  };
+  const usedColors = team.filter(m=>!initial||m.id!==initial?.id).map(m=>m.color);
+  const autoColor = COLOR_PALETTE.find(c=>!usedColors.includes(c)) || COLOR_PALETTE[0];
+
+  const [name, setName] = useState(initial?.name || "");
+  const [role, setRole] = useState(initial?.role || "");
+  const [initials, setInitials] = useState(initial?.initials || "");
+  const [color, setColor] = useState(initial?.color || autoColor);
+  const [budget, setBudget] = useState(initial?.budget ?? 20);
+  const [jiraNames, setJiraNames] = useState(initial?.jiraNames || []);
+  const [jiraInput, setJiraInput] = useState("");
+  const [autoInitials, setAutoInitials] = useState(!initial);
+
+  const handleNameChange = v => {
+    setName(v);
+    if(autoInitials && v.trim()) setInitials(deriveInitials(v));
+  };
+
+  const handleSave = () => {
+    if(!name.trim()) return;
+    onSave({
+      id: initial?.id || deriveId(name),
+      name: name.trim(),
+      role: role.trim() || "Member",
+      initials: initials || deriveInitials(name),
+      color,
+      budget: Math.max(1, parseInt(budget)||20),
+      jiraNames,
+    });
+  };
+
+  const inputStyle = { width:"100%", background:"#0D111C", border:"1px solid #1B2336", borderRadius:10,
+    color:"#E6EAF3", fontFamily:"inherit", padding:"10px 12px", fontSize:12, outline:"none" };
+  const labelStyle = { fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", fontWeight:600, marginBottom:6, display:"block" };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      {/* Name */}
+      <div>
+        <label style={labelStyle}>Name</label>
+        <input value={name} onChange={e=>handleNameChange(e.target.value)} placeholder="e.g. Alex Smith" style={inputStyle}/>
+      </div>
+
+      {/* Role */}
+      <div>
+        <label style={labelStyle}>Role</label>
+        <input value={role} onChange={e=>setRole(e.target.value)} placeholder="e.g. Full Stack, Flutter" style={inputStyle}/>
+      </div>
+
+      {/* Initials + Budget row */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        <div>
+          <label style={labelStyle}>Initials</label>
+          <input value={initials} onChange={e=>{ setInitials(e.target.value.toUpperCase().slice(0,2)); setAutoInitials(false); }}
+            maxLength={2} style={{...inputStyle, textAlign:"center", letterSpacing:".1em", fontWeight:700}}/>
+        </div>
+        <div>
+          <label style={labelStyle}>Budget (pts)</label>
+          <input type="number" value={budget} onChange={e=>setBudget(e.target.value)} min={1} style={{...inputStyle, fontFamily:"'JetBrains Mono'"}}/>
+        </div>
+      </div>
+
+      {/* Color */}
+      <div>
+        <label style={labelStyle}>Color</label>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+          {COLOR_PALETTE.map(c=>(
+            <div key={c} onClick={()=>setColor(c)} style={{ width:28, height:28, borderRadius:"50%", background:c, cursor:"pointer",
+              boxShadow:color===c?"0 0 0 2.5px #E6EAF3":"none", opacity:usedColors.includes(c)?.5:1,
+              transition:"box-shadow .15s, opacity .15s" }}/>
+          ))}
+        </div>
+      </div>
+
+      {/* Jira Names */}
+      <div>
+        <label style={labelStyle}>Jira Display Names</label>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:jiraNames.length?8:0 }}>
+          {jiraNames.map((n,i)=>(
+            <span key={i} style={{ display:"flex", alignItems:"center", gap:4, background:"#161D2E", borderRadius:8,
+              padding:"4px 8px", fontSize:11, color:"#8B93A7", fontFamily:"'JetBrains Mono'" }}>
+              {n}
+              <span onClick={()=>setJiraNames(jiraNames.filter((_,j)=>j!==i))} style={{ cursor:"pointer", color:"#FF3B5C88", fontWeight:700, fontSize:13 }}>×</span>
+            </span>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:6 }}>
+          <input value={jiraInput} onChange={e=>setJiraInput(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter" && jiraInput.trim()){ setJiraNames([...jiraNames, jiraInput.trim().toLowerCase()]); setJiraInput(""); e.preventDefault(); }}}
+            placeholder="Type name + Enter" style={{...inputStyle, flex:1}}/>
+        </div>
+        <div style={{ fontSize:9, color:"#3A4358", marginTop:4 }}>Matches Jira assignee display names (substring, case-insensitive)</div>
+      </div>
+
+      {/* Preview */}
+      {name.trim() && (
+        <div style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"12px 14px", display:"flex", alignItems:"center", gap:10 }}>
+          <div style={{ width:34, height:34, borderRadius:10, background:`linear-gradient(135deg, ${color}33, ${color}11)`,
+            border:`1px solid ${color}44`, display:"grid", placeItems:"center", fontSize:11, fontWeight:700, color }}>{initials||"?"}</div>
+          <div>
+            <div style={{ fontSize:13, fontWeight:700 }}>{name}</div>
+            <div style={{ fontSize:10, color:"#4A5468" }}>{role||"Member"} · {budget} pts</div>
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div style={{ display:"flex", gap:10 }}>
+        <button onClick={handleSave} disabled={!name.trim()} style={{ flex:1, padding:"11px", borderRadius:11, border:"none",
+          background:name.trim()?"#7C5CFF":"#1B2336", color:name.trim()?"#fff":"#4A5468",
+          fontSize:12, fontWeight:700, cursor:name.trim()?"pointer":"not-allowed" }}>{initial?"Save Changes":"Add to Team"}</button>
+        <button onClick={onCancel} style={{ padding:"11px 18px", borderRadius:11, border:"1px solid #1B2336",
+          background:"transparent", color:"#6B7488", fontSize:12, fontWeight:600, cursor:"pointer" }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
