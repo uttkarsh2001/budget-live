@@ -180,7 +180,20 @@ function App() {
   const [sprintWeeks, setSprintWeeks] = useState(()=>load("budget:sprintWeeks", 2));
   const [infoTip, setInfoTip] = useState(null);
   const [selectedEpic, setSelectedEpic] = useState("all");
-  const [team, setTeam] = useState(()=>load("budget:team", DEFAULT_TEAM));
+  const [team, setTeam] = useState(()=>{
+    let t = load("budget:team", DEFAULT_TEAM);
+    // Migrate: backfill accountId from DEFAULT_TEAM for members saved before accountId existed
+    let migrated = false;
+    t = t.map(m=>{
+      if(!m.accountId){
+        const def = DEFAULT_TEAM.find(d=>d.id===m.id);
+        if(def?.accountId){ migrated=true; return {...m, accountId:def.accountId}; }
+      }
+      return m;
+    });
+    if(migrated) save("budget:team",t);
+    return t;
+  });
   const [teamEditorOpen, setTeamEditorOpen] = useState(false);
   const [editingMember, setEditingMember] = useState(null); // null=list, "new"=add, {member}=edit
   const [jiraMembers, setJiraMembers] = useState([]);
@@ -190,7 +203,7 @@ function App() {
   const editorTeam = draftTeam || team; // what the editor shows
   const setTeamDraft = t=>{ setDraftTeam(t); save("budget:team",t); };
   const applyTeamAndRefresh = ()=>{
-    if(draftTeam){ setTeam(draftTeam); setDraftTeam(null); refresh(draftTeam); }
+    if(draftTeam){ setTeam(draftTeam); setDraftTeam(null); refresh(); }
   };
 
   const fetchJiraMembers = async ()=>{
@@ -213,14 +226,11 @@ function App() {
     }
   },[loading]);
 
-  async function refresh(overrideTeam){
+  async function refresh(){
     setLoading(true);
     let data=null;
     try{
-      const t = overrideTeam || team;
-      const accountIds = t.filter(m=>m.accountId).map(m=>m.accountId);
-      const acctParam = accountIds.length ? accountIds.join(",") : "all";
-      const r = await fetch(`/api/issues?accounts=${encodeURIComponent(acctParam)}`);
+      const r = await fetch("/api/issues");
       if(r.ok){ const j=await r.json(); if(j.issues){ data=j.issues; setSrc("live · jira"); } }
     }catch{}
     if(!data){ data=SNAPSHOT; setSrc("snapshot"); }
