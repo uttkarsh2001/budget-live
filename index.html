@@ -129,6 +129,7 @@ function App() {
   const [devDetail, setDevDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState(()=>load("budget:title","OLC & Coupons"));
+  const [sprintWeeks, setSprintWeeks] = useState(()=>load("budget:sprintWeeks", 2));
   const rootRef = useRef(null);
   const memberRefs = useRef({});
   const chipRefs = useRef({});
@@ -196,7 +197,6 @@ function App() {
   const ofMember = id => active.filter(i=>memberOf(i)===id);
   const loadOf = id => ofMember(id).reduce((s,i)=>s+pts(i),0);
   const doneOf = id => ofMember(id).filter(i=>statusOf(i.key)==="done").reduce((s,i)=>s+pts(i),0);
-  const totalBudget = TEAM.reduce((s,m)=>s+m.budget,0);
   const totalLoad = TEAM.reduce((s,m)=>s+loadOf(m.id),0);
   const totalDone = TEAM.reduce((s,m)=>s+doneOf(m.id),0);
   const excludedCount = Object.values(excluded).filter(Boolean).length;
@@ -229,6 +229,16 @@ function App() {
   const weeklyAvg = w => { const nz=w.filter(x=>x>0); return nz.length? Math.round(w.reduce((a,b)=>a+b,0)/Math.max(nz.length,1)) : 0; };
   const efficiency = id => { const l=loadOf(id); return l? Math.round((doneOf(id)/l)*100) : null; };
 
+  const budgetOf = useCallback(id => {
+    const m = TEAM.find(x => x.id === id);
+    const v = velocity[id];
+    const avg = v ? weeklyAvg(v.weeks) : 0;
+    const computed = avg * sprintWeeks;
+    return computed > 0 ? computed : (m ? m.budget : 15);
+  }, [velocity, sprintWeeks]);
+
+  const totalBudget = TEAM.reduce((s,m)=>s+budgetOf(m.id),0);
+
   const R=52, C=2*Math.PI*R;
   const arcPlanned=Math.min(totalLoad/totalBudget,1)*C*.75;
   const arcDone=Math.min(totalDone/totalBudget,1)*C*.75;
@@ -258,7 +268,18 @@ function App() {
             <input value={title} onChange={e=>setTitleSaved(e.target.value)}
               style={{ fontSize:24, fontWeight:700, letterSpacing:"-.02em", marginTop:2, background:"transparent",
                 border:"none", outline:"none", color:"#E6EAF3", fontFamily:"inherit", width:"100%", padding:0 }}/>
-            <div style={{ fontSize:10, color:"#3A4358", marginTop:2, fontFamily:"'JetBrains Mono'" }}>{src} · jira wins on refresh</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4 }}>
+              <span style={{ fontSize:10, color:"#4A5468", fontFamily:"'JetBrains Mono'" }}>Sprint:</span>
+              <select value={sprintWeeks} onChange={e=>{ const w=parseInt(e.target.value); setSprintWeeks(w); save("budget:sprintWeeks", w); }}
+                style={{ background:"#0D111C", border:"1px solid #1B2336", borderRadius:6, color:"#8B93A7", fontSize:10,
+                  fontFamily:"'JetBrains Mono'", padding:"2px 6px", outline:"none", cursor:"pointer" }}>
+                <option value={1}>1 Week</option>
+                <option value={2}>2 Weeks</option>
+                <option value={3}>3 Weeks</option>
+                <option value={4}>4 Weeks</option>
+              </select>
+              <span style={{ fontSize:10, color:"#3A4358", fontFamily:"'JetBrains Mono'" }}>· {src}</span>
+            </div>
           </div>
           <button onClick={refresh} aria-label="Refresh" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
             background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>↻</button>
@@ -324,7 +345,7 @@ function App() {
 
         <div className="vessel-grid">
         {TEAM.map(m=>{
-          const l=loadOf(m.id), d=doneOf(m.id), over=l>m.budget;
+          const b=budgetOf(m.id), l=loadOf(m.id), d=doneOf(m.id), over=l>b;
           const mine=ofMember(m.id);
           const armed=!!picked;
           const eff=efficiency(m.id);
@@ -349,12 +370,12 @@ function App() {
                   <div style={{ fontSize:16, fontWeight:700 }}>
                     <span style={{ color:DONE_COLOR }}><Num value={d}/></span>
                     <span style={{ color:over?"#FF3B5C":m.color }}>/<Num value={l}/></span>
-                    <span style={{ fontSize:11, color:"#3A4358" }}>/{m.budget}</span>
+                    <span style={{ fontSize:11, color:"#3A4358" }}>/{b}</span>
                   </div>
-                  {over && <div style={{ fontSize:9, color:"#FF3B5C", fontWeight:700 }}>+{l-m.budget} OVER</div>}
+                  {over && <div style={{ fontSize:9, color:"#FF3B5C", fontWeight:700 }}>+{l-b} OVER</div>}
                 </div>
               </div>
-              <Cells budget={m.budget} planned={l} done={d} color={m.color}/>
+              <Cells budget={b} planned={l} done={d} color={m.color}/>
               {mine.length>0 && (
                 <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:10 }}>
                   {mine.map(i=>{
@@ -452,6 +473,7 @@ function App() {
       const m=detailMember, mine=ofMember(m.id);
       const l=loadOf(m.id), d=doneOf(m.id), eff=efficiency(m.id);
       const v=velocity[m.id];
+      const b=budgetOf(m.id);
       const groups=[["doing","In Flight","#3D8BFF"],["todo","Queued","#6B7488"],["done","Shipped",DONE_COLOR]];
       const avgSize = mine.length? (l/mine.length).toFixed(1) : "—";
       return (
@@ -466,7 +488,7 @@ function App() {
                   border:`1px solid ${m.color}55`, display:"grid", placeItems:"center", fontSize:14, fontWeight:700, color:m.color }}>{m.initials}</div>
                 <div>
                   <div style={{ fontSize:19, fontWeight:700 }}>{m.name}</div>
-                  <div style={{ fontSize:11, color:"#4A5468" }}>{m.role} · {m.budget} pt budget</div>
+                  <div style={{ fontSize:11, color:"#4A5468" }}>{m.role} · {b} pt budget</div>
                 </div>
               </div>
               <button onClick={()=>setDevDetail(null)} style={{ width:34, height:34, borderRadius:10, border:"1px solid #1B2336",
@@ -500,10 +522,10 @@ function App() {
               <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
                 <span style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase" }}>This Sprint</span>
                 <span style={{ fontFamily:"'JetBrains Mono'", fontSize:12, fontWeight:700 }}>
-                  <span style={{ color:DONE_COLOR }}>{d}</span><span style={{ color:m.color }}>/{l}</span><span style={{ color:"#3A4358" }}>/{m.budget}</span>
+                  <span style={{ color:DONE_COLOR }}>{d}</span><span style={{ color:m.color }}>/{l}</span><span style={{ color:"#3A4358" }}>/{b}</span>
                 </span>
               </div>
-              <Cells budget={m.budget} planned={l} done={d} color={m.color}/>
+              <Cells budget={b} planned={l} done={d} color={m.color}/>
             </div>
 
             {/* Tickets by status */}
