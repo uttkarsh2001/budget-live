@@ -130,6 +130,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState(()=>load("budget:title","OLC & Coupons"));
   const [sprintWeeks, setSprintWeeks] = useState(()=>load("budget:sprintWeeks", 2));
+  const [showInfo, setShowInfo] = useState(false);
   const rootRef = useRef(null);
   const memberRefs = useRef({});
   const chipRefs = useRef({});
@@ -281,8 +282,12 @@ function App() {
               <span style={{ fontSize:10, color:"#3A4358", fontFamily:"'JetBrains Mono'" }}>· {src}</span>
             </div>
           </div>
-          <button onClick={refresh} aria-label="Refresh" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
-            background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>↻</button>
+          <div style={{ display:"flex", gap:6 }}>
+            <button onClick={()=>setShowInfo(true)} aria-label="Info" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
+              background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>ⓘ</button>
+            <button onClick={refresh} aria-label="Refresh" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
+              background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>↻</button>
+          </div>
         </div>
 
         {/* Dial */}
@@ -555,6 +560,59 @@ function App() {
         </div>
       );
     })()}
+
+    {/* ============ INFO MODAL ============ */}
+    {showInfo && (
+      <div onClick={()=>setShowInfo(false)} style={{ position:"fixed", inset:0, background:"#06080FCC",
+        backdropFilter:"blur(4px)", zIndex:100, display:"flex", justifyContent:"flex-end" }}>
+        <div className="drawer" onClick={e=>e.stopPropagation()} style={{ width:"min(440px, 100vw)", height:"100vh",
+          overflowY:"auto", background:"#0A0E18", borderLeft:"1px solid #7C5CFF33", padding:"24px 22px" }}>
+
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
+            <div>
+              <div style={{ fontSize:10, letterSpacing:".32em", color:"#7C5CFF", textTransform:"uppercase", fontWeight:600 }}>Sprint Ledger</div>
+              <div style={{ fontSize:19, fontWeight:700, marginTop:2 }}>How It Works</div>
+            </div>
+            <button onClick={()=>setShowInfo(false)} style={{ width:34, height:34, borderRadius:10, border:"1px solid #1B2336",
+              background:"#0D111C", color:"#6B7488", cursor:"pointer", fontSize:14 }}>✕</button>
+          </div>
+
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            {[
+              {
+                title: "Dynamic Sprint Budget",
+                desc: "Calculates developer capacity based on their average weekly velocity scaled by the sprint weeks."
+              },
+              {
+                title: "Weekly Velocity",
+                desc: "Average story points completed per active week over a rolling 8-week history."
+              },
+              {
+                title: "Average Cycle Time",
+                desc: "The average calendar days a ticket takes from creation to resolution in Jira."
+              },
+              {
+                title: "Developer Efficiency",
+                desc: "The percentage of planned sprint points successfully completed (Shipped ÷ Planned)."
+              },
+              {
+                title: "Interactive Controls",
+                desc: "Tap ticket, then tap a person to assign. Double-tap to unassign. Tap status indicator to cycle status."
+              },
+              {
+                title: "Jira Lock status 🔒",
+                desc: "Jira-assigned tickets are locked and must be re-assigned or updated directly on the Jira board."
+              }
+            ].map((item, idx) => (
+              <div key={idx} style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"16px" }}>
+                <div style={{ fontSize:13, fontWeight:700, color:"#7C5CFF", marginBottom:6 }}>{item.title}</div>
+                <div style={{ fontSize:11.5, color:"#8B93A7", lineHeight:1.4 }}>{item.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
 }
