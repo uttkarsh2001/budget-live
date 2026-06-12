@@ -117,53 +117,44 @@ function Spark({ series, color, height=42 }) {
   );
 }
 
-/* Inline info tooltip */
-function InfoTip({ id, tip, activeTip, setActiveTip }) {
-  const open = activeTip === id;
+/* Inline info trigger — opens sidebar for that feature */
+function InfoTip({ id, activeTip, setActiveTip }) {
   return (
-    <span style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
-      <span onClick={e=>{ e.stopPropagation(); setActiveTip(open?null:id); }}
-        style={{ width:18, height:18, borderRadius:6, display:"inline-grid", placeItems:"center",
-          fontSize:10, fontWeight:700, cursor:"pointer", marginLeft:6, flexShrink:0,
-          background:open?"#7C5CFF22":"transparent", color:open?"#7C5CFF":"#3A4358",
-          border:`1px solid ${open?"#7C5CFF44":"#1B2336"}`, transition:"all .15s" }}>?</span>
-      {open && (
-        <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 8px)", left:"50%", transform:"translateX(-50%)",
-          width:260, background:"#0D111C", border:"1px solid #7C5CFF33", borderRadius:12, padding:"11px 13px",
-          zIndex:60, boxShadow:"0 8px 24px #00000066" }}>
-          <div style={{ fontSize:11, color:"#E6EAF3", lineHeight:1.45, marginBottom:6 }}>{tip.desc}</div>
-          <div style={{ fontSize:10, color:"#8B93A7", lineHeight:1.35, marginBottom:4 }}>
-            <strong style={{ color:"#4A5468" }}>UI: </strong>{tip.feature}
-          </div>
-          <div style={{ fontSize:10, color:"#00E5A0", fontStyle:"italic", fontFamily:"'JetBrains Mono'", lineHeight:1.35 }}>{tip.example}</div>
-        </div>
-      )}
-    </span>
+    <span onClick={e=>{ e.stopPropagation(); setActiveTip(activeTip===id?null:id); }}
+      style={{ width:18, height:18, borderRadius:6, display:"inline-grid", placeItems:"center",
+        fontSize:10, fontWeight:700, cursor:"pointer", marginLeft:6, flexShrink:0,
+        background:activeTip===id?"#7C5CFF22":"transparent", color:activeTip===id?"#7C5CFF":"#3A4358",
+        border:`1px solid ${activeTip===id?"#7C5CFF44":"#1B2336"}`, transition:"all .15s" }}>?</span>
   );
 }
 
 const INFO = {
   budget: {
+    title: "Dynamic Sprint Budget",
     desc: "Calculates developer capacity based on their average weekly velocity scaled by the sprint weeks.",
     feature: "Displayed as capacity limits (e.g. /28) on the team cards, dictating the fill cells and overflow red glows.",
     example: "e.g., if a dev has a 58 pt budget for a 2-week sprint, they historically deliver 29 pts/week."
   },
   velocity: {
+    title: "Weekly Velocity",
     desc: "Average story points completed per active week over a rolling 8-week history.",
     feature: "Used to automatically compute the capacity limits and visualized in the weekly sparkline chart.",
     example: "e.g., a weekly velocity of 15 means they ship around 15 points of tickets every week."
   },
   cycle: {
+    title: "Average Cycle Time",
     desc: "The average calendar days a ticket takes from creation to resolution in Jira.",
     feature: "Displayed as 'Avg Cycle' inside the developer detail drawer stats.",
     example: "e.g., an average cycle time of 4.5d means tickets usually take 4.5 days to complete."
   },
   efficiency: {
+    title: "Developer Efficiency",
     desc: "The percentage of planned sprint points successfully completed (Shipped ÷ Planned).",
     feature: "Displayed as 'eff%' badge next to the developer's role and color-coded based on performance thresholds.",
     example: "e.g., if a dev has 10 points planned and ships 8 points, their efficiency is 80%."
   },
   controls: {
+    title: "Interactive Controls",
     desc: "Tap a ticket chip, then tap a person to assign. Double-tap to unassign. Tap status indicator to cycle status.",
     feature: "Jira-assigned tickets are locked (🔒) to preserve alignment — reassign those in Jira directly.",
     example: "e.g., tap ticket #1249, then tap Vishal's card to assign it, or double-tap to send it back to the pool."
@@ -396,7 +387,7 @@ function App() {
                 borderBottom:l!=="Capacity"?"1px solid #11182A":"none" }}>
                 <span style={{ fontSize:11, color:"#6B7488", display:"flex", alignItems:"center", gap:6 }}>
                   <span style={{ width:7, height:7, borderRadius:2, background:c }}/>{l}
-                  {l==="Capacity" && <InfoTip id="budget" tip={INFO.budget} activeTip={infoTip} setActiveTip={setInfoTip}/>}
+                  {l==="Capacity" && <InfoTip id="budget" activeTip={infoTip} setActiveTip={setInfoTip}/>}
                 </span>
                 <Num value={v} style={{ fontSize:15, fontWeight:700, color:l==="Capacity"?"#6B7488":"#E6EAF3", fontFamily:"'JetBrains Mono'" }}/>
               </div>
@@ -407,7 +398,7 @@ function App() {
         {/* Team velocity */}
         <div className="stagger" style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:20, padding:"14px 16px", marginBottom:12 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:10 }}>
-            <span style={{ fontSize:10, letterSpacing:".24em", color:"#4A5468", textTransform:"uppercase", fontWeight:600, display:"flex", alignItems:"center" }}>Team Velocity<InfoTip id="velocity" tip={INFO.velocity} activeTip={infoTip} setActiveTip={setInfoTip}/></span>
+            <span style={{ fontSize:10, letterSpacing:".24em", color:"#4A5468", textTransform:"uppercase", fontWeight:600, display:"flex", alignItems:"center" }}>Team Velocity<InfoTip id="velocity" activeTip={infoTip} setActiveTip={setInfoTip}/></span>
             <span style={{ fontFamily:"'JetBrains Mono'", fontSize:11, color:"#6B7488" }}>
               ~<span style={{ color:DONE_COLOR, fontWeight:700 }}>{weeklyAvg(velocity.team.weeks)}</span> pts/wk
             </span>
@@ -420,7 +411,7 @@ function App() {
 
         <div className="stagger" style={{ fontSize:9, color:"#252D40", fontFamily:"'JetBrains Mono'", letterSpacing:".08em", lineHeight:2, display:"flex", alignItems:"center", flexWrap:"wrap" }}>
           <span>TAP CHIP → TAP PERSON · TAP DEV CARD = DETAILS · JIRA LOCKS 🔒</span>
-          <InfoTip id="controls" tip={INFO.controls} activeTip={infoTip} setActiveTip={setInfoTip}/>
+          <InfoTip id="controls" activeTip={infoTip} setActiveTip={setInfoTip}/>
         </div>
       </div>
 
@@ -599,7 +590,7 @@ function App() {
               ].map(([label,val,color,sub,tipId])=>(
                 <div key={label} style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"12px 13px" }}>
                   <div style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", marginBottom:5, display:"flex", alignItems:"center" }}>
-                    {label}{tipId && <InfoTip id={"drawer_"+tipId} tip={INFO[tipId]} activeTip={infoTip} setActiveTip={setInfoTip}/>}
+                    {label}{tipId && <InfoTip id={tipId} activeTip={infoTip} setActiveTip={setInfoTip}/>}
                   </div>
                   <div style={{ fontSize:19, fontWeight:700, color, fontFamily:"'JetBrains Mono'" }}>{val}</div>
                   <div style={{ fontSize:9, color:"#3A4358", marginTop:2 }}>{sub}</div>
@@ -652,8 +643,34 @@ function App() {
       );
     })()}
 
-    {/* Click-away: close any open info tip */}
-    {infoTip && <div onClick={()=>setInfoTip(null)} style={{ position:"fixed", inset:0, zIndex:50 }}/>}
+    {/* ============ INFO SIDEBAR ============ */}
+    {infoTip && INFO[infoTip] && (
+      <div onClick={()=>setInfoTip(null)} style={{ position:"fixed", inset:0, background:"#06080FCC",
+        backdropFilter:"blur(4px)", zIndex:100, display:"flex", justifyContent:"flex-end" }}>
+        <div className="drawer" onClick={e=>e.stopPropagation()} style={{ width:"min(380px, 100vw)", height:"100vh",
+          overflowY:"auto", background:"#0A0E18", borderLeft:"1px solid #7C5CFF33", padding:"24px 22px" }}>
+
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
+            <div>
+              <div style={{ fontSize:10, letterSpacing:".32em", color:"#7C5CFF", textTransform:"uppercase", fontWeight:600 }}>Sprint Ledger</div>
+              <div style={{ fontSize:19, fontWeight:700, marginTop:2 }}>{INFO[infoTip].title}</div>
+            </div>
+            <button onClick={()=>setInfoTip(null)} style={{ width:34, height:34, borderRadius:10, border:"1px solid #1B2336",
+              background:"#0D111C", color:"#6B7488", cursor:"pointer", fontSize:14 }}>✕</button>
+          </div>
+
+          <div style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"16px" }}>
+            <div style={{ fontSize:11.5, color:"#E6EAF3", lineHeight:1.5, marginBottom:10 }}>{INFO[infoTip].desc}</div>
+            <div style={{ fontSize:11, color:"#8B93A7", lineHeight:1.4, marginBottom:8 }}>
+              <strong style={{ color:"#4A5468" }}>UI Feature: </strong>{INFO[infoTip].feature}
+            </div>
+            <div style={{ fontSize:11, color:"#00E5A0", fontStyle:"italic", fontFamily:"'JetBrains Mono'", lineHeight:1.4 }}>
+              {INFO[infoTip].example}
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
 }
