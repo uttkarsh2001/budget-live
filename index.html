@@ -71,7 +71,11 @@ const SNAPSHOT = [
 /* ============ HELPERS ============ */
 const load = (k,f)=>{ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):f; }catch{ return f; } };
 const save = (k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} };
-const autoMap = (n,team)=>{ if(!n) return null; const l=n.toLowerCase(); for(const m of team) if(m.jiraNames.some(x=>l.includes(x))) return m.id; return null; };
+const autoMap = (n,team)=>{ if(!n) return null; const l=n.toLowerCase();
+  // Prefer exact match first, then fall back to substring
+  for(const m of team) if(m.jiraNames.some(x=>l===x)) return m.id;
+  for(const m of team) if(m.jiraNames.some(x=>l.includes(x))) return m.id;
+  return null; };
 const mapJiraStatus = s=>{ if(!s) return "todo"; const l=s.toLowerCase();
   if(l.includes("done")||l.includes("closed")||l.includes("resolved")) return "done";
   if(l.includes("progress")||l.includes("review")) return "doing"; return "todo"; };
