@@ -280,30 +280,10 @@ function App() {
         <div className="stagger" style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12 }}>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:10, letterSpacing:".32em", color:"#7C5CFF", textTransform:"uppercase", fontWeight:600 }}>Sprint Ledger</div>
-
-            {/* Epic / Focus filter */}
-            <div style={{ marginTop:6, marginBottom:4 }}>
-              <select value={selectedEpic} onChange={e=>setSelectedEpic(e.target.value)}
-                style={{ background:"#0D111C", border:"1px solid #7C5CFF44", borderRadius:10, color:"#E6EAF3",
-                  fontSize:18, fontWeight:700, fontFamily:"inherit", padding:"4px 8px", outline:"none",
-                  cursor:"pointer", width:"100%", appearance:"none",
-                  backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237C5CFF' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\")",
-                  backgroundRepeat:"no-repeat", backgroundPosition:"calc(100% - 10px) 50%", paddingRight:28 }}>
-                <option value="all">All Epics</option>
-                {epics.map(e => (
-                  <option key={e.key} value={e.key}>{e.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Free-text sprint label */}
             <input value={title} onChange={e=>setTitleSaved(e.target.value)}
-              placeholder="Sprint name…"
-              style={{ fontSize:11, color:"#4A5468", letterSpacing:".04em", marginTop:2, background:"transparent",
-                border:"none", outline:"none", fontFamily:"'JetBrains Mono'", width:"100%", padding:0,
-                cursor:"text" }}/>
-
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:6 }}>
+              style={{ fontSize:24, fontWeight:700, letterSpacing:"-.02em", marginTop:2, background:"transparent",
+                border:"none", outline:"none", color:"#E6EAF3", fontFamily:"inherit", width:"100%", padding:0 }}/>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4 }}>
               <span style={{ fontSize:10, color:"#4A5468", fontFamily:"'JetBrains Mono'" }}>Sprint:</span>
               <select value={sprintWeeks} onChange={e=>{ const w=parseInt(e.target.value); setSprintWeeks(w); save("budget:sprintWeeks", w); }}
                 style={{ background:"#0D111C", border:"1px solid #1B2336", borderRadius:6, color:"#8B93A7", fontSize:10,
@@ -313,10 +293,6 @@ function App() {
                 <option value={3}>3 Weeks</option>
                 <option value={4}>4 Weeks</option>
               </select>
-              <span style={{ fontSize:10, color:"#3A4358", fontFamily:"'JetBrains Mono'" }}>·</span>
-              <span style={{ fontSize:10, color:selectedEpic==="all"?"#3A4358":"#7C5CFF", fontFamily:"'JetBrains Mono'" }}>
-                {selectedEpic==="all" ? `${active.length} tickets` : `${active.length} in epic`}
-              </span>
               <span style={{ fontSize:10, color:"#3A4358", fontFamily:"'JetBrains Mono'" }}>· {src}</span>
             </div>
           </div>
@@ -327,6 +303,24 @@ function App() {
               background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>↻</button>
           </div>
         </div>
+
+        {/* Epic filter pills */}
+        {epics.length > 0 && (
+          <div className="stagger" style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+            {[{ key:"all", label:"All Epics" }, ...epics].map(e => {
+              const active = selectedEpic === e.key;
+              return (
+                <button key={e.key} onClick={()=>setSelectedEpic(e.key)}
+                  style={{ padding:"4px 11px", borderRadius:20, border:`1px solid ${active?"#7C5CFF":"#1B2336"}`,
+                    background:active?"#7C5CFF22":"transparent", color:active?"#7C5CFF":"#4A5468",
+                    fontSize:10, fontWeight:active?700:500, cursor:"pointer", fontFamily:"'JetBrains Mono'",
+                    letterSpacing:".05em", transition:"all .15s", whiteSpace:"nowrap" }}>
+                  {e.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Dial */}
         <div className="stagger" style={{ display:"flex", alignItems:"center", gap:16, background:"#0D111C",
