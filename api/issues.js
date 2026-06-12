@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     `AND (assignee in (${assigneeList}) OR assignee is EMPTY) ` +
     `AND (created >= -30d OR resolutiondate >= -56d) ORDER BY created DESC`
   );
-  const fields = "summary,customfield_10016,issuetype,assignee,status,created,resolutiondate";
+  const fields = "summary,customfield_10016,issuetype,assignee,status,created,resolutiondate,parent";
 
   try {
     const r = await fetch(
@@ -44,6 +44,8 @@ export default async function handler(req, res) {
       jiraStatus: i.fields?.status?.name || "To Do",
       created: i.fields?.created || null,
       resolved: i.fields?.resolutiondate || null,
+      epicKey: i.fields?.parent?.key || null,
+      epicTitle: i.fields?.parent?.fields?.summary || null,
     }));
     res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
     return res.status(200).json({ issues, syncedAt: new Date().toISOString() });
