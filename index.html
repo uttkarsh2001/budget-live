@@ -200,9 +200,6 @@ function App() {
   });
   const [teamEditorOpen, setTeamEditorOpen] = useState(false);
   const [editingMember, setEditingMember] = useState(null); // null=list, "new"=add, {member}=edit
-  const [jiraMembers, setJiraMembers] = useState([]);
-  const [jiraMembersLoading, setJiraMembersLoading] = useState(false);
-  const [memberSearch, setMemberSearch] = useState("");
   const [draftTeam, setDraftTeam] = useState(null); // edited team before applying
   const editorTeam = draftTeam || team; // what the editor shows
   const setTeamDraft = t=>{ setDraftTeam(t); save("budget:team",t); };
@@ -210,14 +207,6 @@ function App() {
     if(draftTeam){ setTeam(draftTeam); setDraftTeam(null); refresh(); }
   };
 
-  const fetchJiraMembers = async ()=>{
-    setJiraMembersLoading(true);
-    try{
-      const r = await fetch("/api/members");
-      if(r.ok){ const j=await r.json(); if(j.members) setJiraMembers(j.members); }
-    }catch{}
-    setJiraMembersLoading(false);
-  };
   const rootRef = useRef(null);
   const memberRefs = useRef({});
   const chipRefs = useRef({});
@@ -238,9 +227,6 @@ function App() {
       if(r.ok){ const j=await r.json(); if(j.issues){ data=j.issues; setSrc("live · jira"); } }
     }catch{}
     if(!data){ data=SNAPSHOT; setSrc("snapshot"); }
-    console.log("[Sprint Ledger] Issues loaded:", data.length, "src:", data===SNAPSHOT?"snapshot":"jira");
-    console.log("[Sprint Ledger] Resolved:", data.filter(i=>i.resolved).map(i=>({key:i.key,jira:i.jira,pts:i.points,resolved:i.resolved})));
-    console.log("[Sprint Ledger] Matched to team:", data.filter(i=>autoMap(i.jira,team)).map(i=>({key:i.key,jira:i.jira,member:autoMap(i.jira,team),pts:i.points})));
     setIssues(data);
     /* OPTION A — Jira wins on every refresh: status always re-derived from Jira */
     const st={};
@@ -386,7 +372,7 @@ function App() {
             </div>
           </div>
           <div style={{ display:"flex", gap:6 }}>
-            <button onClick={()=>{ setTeamEditorOpen(true); setEditingMember(null); setMemberSearch(""); setDraftTeam(team); fetchJiraMembers(); }} aria-label="Team" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
+            <button onClick={()=>{ setTeamEditorOpen(true); setEditingMember(null); setDraftTeam(team); }} aria-label="Team" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
               background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>⚙</button>
             <button onClick={refresh} aria-label="Refresh" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
               background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>↻</button>
@@ -774,66 +760,14 @@ function App() {
                 </div>
               )}
 
-              {/* Jira members picker */}
-              <div>
-                <div style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", fontWeight:600, marginBottom:8 }}>Add from Jira</div>
-                <input value={memberSearch} onChange={e=>setMemberSearch(e.target.value)} placeholder="Search Jira members..."
-                  style={{ width:"100%", background:"#0D111C", border:"1px solid #1B2336", borderRadius:10,
-                    color:"#E6EAF3", fontFamily:"inherit", padding:"9px 12px", fontSize:11, outline:"none", marginBottom:8 }}/>
-                {jiraMembersLoading ? (
-                  <div style={{ textAlign:"center", padding:"16px 0", color:"#3A4358", fontSize:11 }}>Loading Jira members...</div>
-                ) : (
-                  <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:240, overflowY:"auto" }}>
-                    {jiraMembers
-                      .filter(jm=>!memberSearch || jm.displayName.toLowerCase().includes(memberSearch.toLowerCase()))
-                      .map(jm=>{
-                        const alreadyAdded = editorTeam.some(m=>m.accountId===jm.accountId);
-                        return (
-                          <div key={jm.accountId} onClick={()=>{
-                            if(alreadyAdded) return;
-                            const usedColors = editorTeam.map(m=>m.color);
-                            const color = COLOR_PALETTE.find(c=>!usedColors.includes(c)) || COLOR_PALETTE[0];
-                            const parts = jm.displayName.trim().split(/\s+/);
-                            const initials = parts.length>=2 ? (parts[0][0]+parts[1][0]).toUpperCase() : jm.displayName.slice(0,2).toUpperCase();
-                            const base = jm.displayName.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
-                            let id = base; let idx=2;
-                            while(editorTeam.some(m=>m.id===id)){ id=base+"-"+idx; idx++; }
-                            const member = {
-                              id, name:jm.displayName, role:"Member", initials, color,
-                              budget:20, jiraNames:[jm.displayName.toLowerCase()],
-                              accountId:jm.accountId, avatarUrl:jm.avatarUrl
-                            };
-                            setTeamDraft([...editorTeam, member]);
-                          }} style={{ background:alreadyAdded?"#0D111C":"#0D111C", border:`1px solid ${alreadyAdded?"#7C5CFF33":"#161D2E"}`,
-                            borderRadius:12, padding:"9px 12px", display:"flex", alignItems:"center", gap:10,
-                            cursor:alreadyAdded?"default":"pointer", opacity:alreadyAdded?.5:1 }}>
-                            {jm.avatarUrl ? (
-                              <img src={jm.avatarUrl} style={{ width:28, height:28, borderRadius:8, flexShrink:0 }}/>
-                            ) : (
-                              <div style={{ width:28, height:28, borderRadius:8, background:"#161D2E", display:"grid", placeItems:"center",
-                                fontSize:10, fontWeight:700, color:"#6B7488", flexShrink:0 }}>{jm.displayName.slice(0,1).toUpperCase()}</div>
-                            )}
-                            <div style={{ flex:1, fontSize:12, color:"#E6EAF3" }}>{jm.displayName}</div>
-                            {alreadyAdded ? (
-                              <span style={{ fontSize:10, color:"#7C5CFF", fontWeight:700 }}>Added</span>
-                            ) : (
-                              <span style={{ fontSize:10, color:"#4A5468" }}>+ Add</span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    {jiraMembers.length===0 && !jiraMembersLoading && (
-                      <div style={{ textAlign:"center", padding:"12px 0", color:"#3A4358", fontSize:11 }}>No Jira members found</div>
-                    )}
-                  </div>
-                )}
+              {/* Add member + Reset */}
+              <div onClick={()=>setEditingMember("new")} style={{ border:"1px dashed #1B2336", borderRadius:14, padding:"14px",
+                textAlign:"center", cursor:"pointer", color:"#4A5468", fontSize:12, fontWeight:600 }}>
+                + Add Member
               </div>
-
-              {/* Manual add + Reset */}
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:4 }}>
-                <span onClick={()=>setEditingMember("new")} style={{ fontSize:11, color:"#7C5CFF", cursor:"pointer" }}>+ Add manually</span>
+              <div style={{ marginTop:4, fontSize:11, color:"#3A4358", textAlign:"center" }}>
                 <span onClick={()=>{ if(!confirm("Reset team to defaults?")) return; setTeamDraft(DEFAULT_TEAM); }}
-                  style={{ fontSize:11, color:"#3A4358", cursor:"pointer", textDecoration:"underline" }}>Reset defaults</span>
+                  style={{ color:"#7C5CFF", cursor:"pointer", textDecoration:"underline" }}>Reset to Default Team</span>
               </div>
             </div>
           ) : (
@@ -883,6 +817,7 @@ function MemberForm({ initial, team, onSave, onCancel }) {
   const [budget, setBudget] = useState(initial?.budget ?? 20);
   const [jiraNames, setJiraNames] = useState(initial?.jiraNames || []);
   const [jiraInput, setJiraInput] = useState("");
+  const [accountId, setAccountId] = useState(initial?.accountId || "");
   const [autoInitials, setAutoInitials] = useState(!initial);
 
   const handleNameChange = v => {
@@ -900,8 +835,7 @@ function MemberForm({ initial, team, onSave, onCancel }) {
       color,
       budget: Math.max(1, parseInt(budget)||20),
       jiraNames,
-      ...(initial?.accountId ? { accountId:initial.accountId } : {}),
-      ...(initial?.avatarUrl ? { avatarUrl:initial.avatarUrl } : {}),
+      ...(accountId.trim() ? { accountId:accountId.trim() } : {}),
     });
   };
 
@@ -966,6 +900,14 @@ function MemberForm({ initial, team, onSave, onCancel }) {
             placeholder="Type name + Enter" style={{...inputStyle, flex:1}}/>
         </div>
         <div style={{ fontSize:9, color:"#3A4358", marginTop:4 }}>Matches Jira assignee display names (substring, case-insensitive)</div>
+      </div>
+
+      {/* Jira Account ID */}
+      <div>
+        <label style={labelStyle}>Jira Account ID <span style={{ color:"#3A4358", fontWeight:400, textTransform:"none" }}>(optional)</span></label>
+        <input value={accountId} onChange={e=>setAccountId(e.target.value)}
+          placeholder="e.g. 712020:ca6db9cf-d6a5-..." style={{...inputStyle, fontFamily:"'JetBrains Mono'", fontSize:10}}/>
+        <div style={{ fontSize:9, color:"#3A4358", marginTop:4 }}>Find in Jira → People → Profile URL or admin panel</div>
       </div>
 
       {/* Preview */}
