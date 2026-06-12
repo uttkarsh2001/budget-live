@@ -9,18 +9,29 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "JIRA_EMAIL and JIRA_TOKEN env vars not configured" });
   }
 
-  const TEAM_ACCOUNTS = [
+  const FALLBACK_ACCOUNTS = [
     "712020:ca6db9cf-d6a5-473e-84af-009f8d76d495", // Uttkarsh Rastogi
     "712020:4425e44f-3c52-44cb-9b4f-f4b5bedd05a2", // Vishal Roy
     "712020:ce719305-f416-47a8-991d-ddddb556a98b", // Yash Jangir
   ];
 
   const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString("base64");
-  const assigneeList = TEAM_ACCOUNTS.map(a => `"${a}"`).join(",");
+
+  // Accept dynamic account IDs via query param: ?accounts=id1,id2 or ?accounts=all
+  const accountsParam = req.query?.accounts;
+  let assigneeClause;
+  if (accountsParam === "all") {
+    assigneeClause = "";
+  } else {
+    const accounts = accountsParam ? accountsParam.split(",").filter(Boolean) : FALLBACK_ACCOUNTS;
+    const assigneeList = accounts.map(a => `"${a}"`).join(",");
+    assigneeClause = `AND (assignee in (${assigneeList}) OR assignee is EMPTY) `;
+  }
+
   // current work (30d) + completed history (56d) for velocity trend
   const jql = encodeURIComponent(
     `project = H20 AND issuetype in (Story, Bug, Task) ` +
-    `AND (assignee in (${assigneeList}) OR assignee is EMPTY) ` +
+    `${assigneeClause}` +
     `AND (created >= -30d OR resolutiondate >= -56d) ORDER BY created DESC`
   );
   const fields = "summary,customfield_10016,issuetype,assignee,status,created,resolutiondate,parent";
