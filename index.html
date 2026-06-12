@@ -117,6 +117,59 @@ function Spark({ series, color, height=42 }) {
   );
 }
 
+/* Inline info tooltip */
+function InfoTip({ id, tip, activeTip, setActiveTip }) {
+  const open = activeTip === id;
+  return (
+    <span style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
+      <span onClick={e=>{ e.stopPropagation(); setActiveTip(open?null:id); }}
+        style={{ width:18, height:18, borderRadius:6, display:"inline-grid", placeItems:"center",
+          fontSize:10, fontWeight:700, cursor:"pointer", marginLeft:6, flexShrink:0,
+          background:open?"#7C5CFF22":"transparent", color:open?"#7C5CFF":"#3A4358",
+          border:`1px solid ${open?"#7C5CFF44":"#1B2336"}`, transition:"all .15s" }}>?</span>
+      {open && (
+        <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 8px)", left:"50%", transform:"translateX(-50%)",
+          width:260, background:"#0D111C", border:"1px solid #7C5CFF33", borderRadius:12, padding:"11px 13px",
+          zIndex:60, boxShadow:"0 8px 24px #00000066" }}>
+          <div style={{ fontSize:11, color:"#E6EAF3", lineHeight:1.45, marginBottom:6 }}>{tip.desc}</div>
+          <div style={{ fontSize:10, color:"#8B93A7", lineHeight:1.35, marginBottom:4 }}>
+            <strong style={{ color:"#4A5468" }}>UI: </strong>{tip.feature}
+          </div>
+          <div style={{ fontSize:10, color:"#00E5A0", fontStyle:"italic", fontFamily:"'JetBrains Mono'", lineHeight:1.35 }}>{tip.example}</div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+const INFO = {
+  budget: {
+    desc: "Calculates developer capacity based on their average weekly velocity scaled by the sprint weeks.",
+    feature: "Displayed as capacity limits (e.g. /28) on the team cards, dictating the fill cells and overflow red glows.",
+    example: "e.g., if a dev has a 58 pt budget for a 2-week sprint, they historically deliver 29 pts/week."
+  },
+  velocity: {
+    desc: "Average story points completed per active week over a rolling 8-week history.",
+    feature: "Used to automatically compute the capacity limits and visualized in the weekly sparkline chart.",
+    example: "e.g., a weekly velocity of 15 means they ship around 15 points of tickets every week."
+  },
+  cycle: {
+    desc: "The average calendar days a ticket takes from creation to resolution in Jira.",
+    feature: "Displayed as 'Avg Cycle' inside the developer detail drawer stats.",
+    example: "e.g., an average cycle time of 4.5d means tickets usually take 4.5 days to complete."
+  },
+  efficiency: {
+    desc: "The percentage of planned sprint points successfully completed (Shipped ÷ Planned).",
+    feature: "Displayed as 'eff%' badge next to the developer's role and color-coded based on performance thresholds.",
+    example: "e.g., if a dev has 10 points planned and ships 8 points, their efficiency is 80%."
+  },
+  controls: {
+    desc: "Tap a ticket chip, then tap a person to assign. Double-tap to unassign. Tap status indicator to cycle status.",
+    feature: "Jira-assigned tickets are locked (🔒) to preserve alignment — reassign those in Jira directly.",
+    example: "e.g., tap ticket #1249, then tap Vishal's card to assign it, or double-tap to send it back to the pool."
+  }
+};
+
 /* ============ APP ============ */
 function App() {
   const [issues, setIssues] = useState([]);
@@ -130,7 +183,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState(()=>load("budget:title","Sprint Board"));
   const [sprintWeeks, setSprintWeeks] = useState(()=>load("budget:sprintWeeks", 2));
-  const [showInfo, setShowInfo] = useState(false);
+  const [infoTip, setInfoTip] = useState(null);
   const [selectedEpic, setSelectedEpic] = useState("all");
   const rootRef = useRef(null);
   const memberRefs = useRef({});
@@ -296,12 +349,8 @@ function App() {
               <span style={{ fontSize:10, color:"#3A4358", fontFamily:"'JetBrains Mono'" }}>· {src}</span>
             </div>
           </div>
-          <div style={{ display:"flex", gap:6 }}>
-            <button onClick={()=>setShowInfo(true)} aria-label="Info" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
-              background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>ⓘ</button>
-            <button onClick={refresh} aria-label="Refresh" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
+          <button onClick={refresh} aria-label="Refresh" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
               background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>↻</button>
-          </div>
         </div>
 
         {/* Epic filter dropdown */}
@@ -346,7 +395,9 @@ function App() {
               <div key={l} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"5px 0",
                 borderBottom:l!=="Capacity"?"1px solid #11182A":"none" }}>
                 <span style={{ fontSize:11, color:"#6B7488", display:"flex", alignItems:"center", gap:6 }}>
-                  <span style={{ width:7, height:7, borderRadius:2, background:c }}/>{l}</span>
+                  <span style={{ width:7, height:7, borderRadius:2, background:c }}/>{l}
+                  {l==="Capacity" && <InfoTip id="budget" tip={INFO.budget} activeTip={infoTip} setActiveTip={setInfoTip}/>}
+                </span>
                 <Num value={v} style={{ fontSize:15, fontWeight:700, color:l==="Capacity"?"#6B7488":"#E6EAF3", fontFamily:"'JetBrains Mono'" }}/>
               </div>
             ))}
@@ -356,7 +407,7 @@ function App() {
         {/* Team velocity */}
         <div className="stagger" style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:20, padding:"14px 16px", marginBottom:12 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:10 }}>
-            <span style={{ fontSize:10, letterSpacing:".24em", color:"#4A5468", textTransform:"uppercase", fontWeight:600 }}>Team Velocity</span>
+            <span style={{ fontSize:10, letterSpacing:".24em", color:"#4A5468", textTransform:"uppercase", fontWeight:600, display:"flex", alignItems:"center" }}>Team Velocity<InfoTip id="velocity" tip={INFO.velocity} activeTip={infoTip} setActiveTip={setInfoTip}/></span>
             <span style={{ fontFamily:"'JetBrains Mono'", fontSize:11, color:"#6B7488" }}>
               ~<span style={{ color:DONE_COLOR, fontWeight:700 }}>{weeklyAvg(velocity.team.weeks)}</span> pts/wk
             </span>
@@ -367,9 +418,9 @@ function App() {
           </div>
         </div>
 
-        <div className="stagger" style={{ fontSize:9, color:"#252D40", fontFamily:"'JetBrains Mono'", letterSpacing:".08em", lineHeight:2 }}>
-          TAP CHIP → TAP PERSON · TAP DEV CARD = DETAILS<br/>
-          TAP TICKET = STATUS · JIRA-ASSIGNED TICKETS LOCK 🔒
+        <div className="stagger" style={{ fontSize:9, color:"#252D40", fontFamily:"'JetBrains Mono'", letterSpacing:".08em", lineHeight:2, display:"flex", alignItems:"center", flexWrap:"wrap" }}>
+          <span>TAP CHIP → TAP PERSON · TAP DEV CARD = DETAILS · JIRA LOCKS 🔒</span>
+          <InfoTip id="controls" tip={INFO.controls} activeTip={infoTip} setActiveTip={setInfoTip}/>
         </div>
       </div>
 
@@ -541,13 +592,15 @@ function App() {
             {/* Stat grid */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
               {[
-                ["Efficiency", eff!=null?eff+"%":"—", eff!=null?(eff>=70?DONE_COLOR:eff>=40?"#FFB02E":"#FF3B5C"):"#4A5468", "done ÷ planned"],
-                ["Velocity", weeklyAvg(v.weeks)+" pts/wk", m.color, "avg active week"],
-                ["Avg Cycle", fmtDays(v.cycle), "#3D8BFF", "created → resolved"],
-                ["Avg Ticket", avgSize+" pts", "#8B93A7", `${mine.length} tickets`],
-              ].map(([label,val,color,sub])=>(
+                ["Efficiency", eff!=null?eff+"%":"—", eff!=null?(eff>=70?DONE_COLOR:eff>=40?"#FFB02E":"#FF3B5C"):"#4A5468", "done ÷ planned", "efficiency"],
+                ["Velocity", weeklyAvg(v.weeks)+" pts/wk", m.color, "avg active week", "velocity"],
+                ["Avg Cycle", fmtDays(v.cycle), "#3D8BFF", "created → resolved", "cycle"],
+                ["Avg Ticket", avgSize+" pts", "#8B93A7", `${mine.length} tickets`, null],
+              ].map(([label,val,color,sub,tipId])=>(
                 <div key={label} style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"12px 13px" }}>
-                  <div style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", marginBottom:5 }}>{label}</div>
+                  <div style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", marginBottom:5, display:"flex", alignItems:"center" }}>
+                    {label}{tipId && <InfoTip id={"drawer_"+tipId} tip={INFO[tipId]} activeTip={infoTip} setActiveTip={setInfoTip}/>}
+                  </div>
                   <div style={{ fontSize:19, fontWeight:700, color, fontFamily:"'JetBrains Mono'" }}>{val}</div>
                   <div style={{ fontSize:9, color:"#3A4358", marginTop:2 }}>{sub}</div>
                 </div>
@@ -599,76 +652,8 @@ function App() {
       );
     })()}
 
-    {/* ============ INFO MODAL ============ */}
-    {showInfo && (
-      <div onClick={()=>setShowInfo(false)} style={{ position:"fixed", inset:0, background:"#06080FCC",
-        backdropFilter:"blur(4px)", zIndex:100, display:"flex", justifyContent:"flex-end" }}>
-        <div className="drawer" onClick={e=>e.stopPropagation()} style={{ width:"min(440px, 100vw)", height:"100vh",
-          overflowY:"auto", background:"#0A0E18", borderLeft:"1px solid #7C5CFF33", padding:"24px 22px" }}>
-
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 }}>
-            <div>
-              <div style={{ fontSize:10, letterSpacing:".32em", color:"#7C5CFF", textTransform:"uppercase", fontWeight:600 }}>Sprint Ledger</div>
-              <div style={{ fontSize:19, fontWeight:700, marginTop:2 }}>How It Works</div>
-            </div>
-            <button onClick={()=>setShowInfo(false)} style={{ width:34, height:34, borderRadius:10, border:"1px solid #1B2336",
-              background:"#0D111C", color:"#6B7488", cursor:"pointer", fontSize:14 }}>✕</button>
-          </div>
-
-          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-            {[
-              {
-                title: "Dynamic Sprint Budget",
-                desc: "Calculates developer capacity based on their average weekly velocity scaled by the sprint weeks.",
-                feature: "Displayed as capacity limits (e.g. /28) on the team cards, dictating the fill cells and overflow red glows.",
-                example: "e.g., if a dev has a 58 pt budget for a 2-week sprint, they historically deliver 29 pts/week."
-              },
-              {
-                title: "Weekly Velocity",
-                desc: "Average story points completed per active week over a rolling 8-week history.",
-                feature: "Used to automatically compute the capacity limits and visualized in the weekly sparkline chart.",
-                example: "e.g., a weekly velocity of 15 means they ship around 15 points of tickets every week."
-              },
-              {
-                title: "Average Cycle Time",
-                desc: "The average calendar days a ticket takes from creation to resolution in Jira.",
-                feature: "Displayed as 'Avg Cycle' inside the developer detail drawer stats.",
-                example: "e.g., an average cycle time of 4.5d means tickets usually take 4.5 days to complete."
-              },
-              {
-                title: "Developer Efficiency",
-                desc: "The percentage of planned sprint points successfully completed (Shipped ÷ Planned).",
-                feature: "Displayed as 'eff%' badge next to the developer's role and color-coded based on performance thresholds.",
-                example: "e.g., if a dev has 10 points planned and ships 8 points, their efficiency is 80%."
-              },
-              {
-                title: "Interactive Controls",
-                desc: "Actions to plan, allocate, and cycle status of the sprint workload.",
-                feature: "Tap a ticket, then tap a person to assign. Double-tap to unassign. Tap status indicator to cycle status.",
-                example: "e.g., tap ticket #1249, then tap Vishal's card to assign it, or double-tap to send it back to the pool."
-              },
-              {
-                title: "Jira Lock status 🔒",
-                desc: "Jira-assigned tickets are locked to preserve Jira alignment.",
-                feature: "Shown with a lock icon 🔒 on the ticket chip and prevents local UI reassignments.",
-                example: "e.g., if ticket #631 is assigned to Uttkarsh in Jira, it cannot be unassigned locally in the UI."
-              }
-            ].map((item, idx) => (
-              <div key={idx} style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"16px" }}>
-                <div style={{ fontSize:13, fontWeight:700, color:"#7C5CFF", marginBottom:6 }}>{item.title}</div>
-                <div style={{ fontSize:11.5, color:"#E6EAF3", lineHeight:1.4, marginBottom:6 }}>{item.desc}</div>
-                <div style={{ fontSize:11, color:"#8B93A7", lineHeight:1.3, marginBottom:4 }}>
-                  <strong style={{ color:"#4A5468" }}>UI Feature: </strong>{item.feature}
-                </div>
-                <div style={{ fontSize:11, color:"#00E5A0", fontStyle:"italic", fontFamily:"'JetBrains Mono'" }}>
-                  {item.example}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    )}
+    {/* Click-away: close any open info tip */}
+    {infoTip && <div onClick={()=>setInfoTip(null)} style={{ position:"fixed", inset:0, zIndex:50 }}/>}
     </div>
   );
 }
