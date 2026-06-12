@@ -304,21 +304,27 @@ function App() {
           </div>
         </div>
 
-        {/* Epic filter pills */}
+        {/* Epic filter dropdown */}
         {epics.length > 0 && (
-          <div className="stagger" style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
-            {[{ key:"all", label:"All Epics" }, ...epics].map(e => {
-              const active = selectedEpic === e.key;
-              return (
-                <button key={e.key} onClick={()=>setSelectedEpic(e.key)}
-                  style={{ padding:"4px 11px", borderRadius:20, border:`1px solid ${active?"#7C5CFF":"#1B2336"}`,
-                    background:active?"#7C5CFF22":"transparent", color:active?"#7C5CFF":"#4A5468",
-                    fontSize:10, fontWeight:active?700:500, cursor:"pointer", fontFamily:"'JetBrains Mono'",
-                    letterSpacing:".05em", transition:"all .15s", whiteSpace:"nowrap" }}>
-                  {e.label}
-                </button>
-              );
-            })}
+          <div className="stagger" style={{ marginBottom:12 }}>
+            <div style={{ position:"relative" }}>
+              <select value={selectedEpic} onChange={e=>setSelectedEpic(e.target.value)}
+                style={{ width:"100%", background:"#0D111C", border:`1px solid ${selectedEpic==="all"?"#1B2336":"#7C5CFF55"}`,
+                  borderRadius:11, color:selectedEpic==="all"?"#6B7488":"#7C5CFF",
+                  fontSize:11, fontWeight:600, fontFamily:"'JetBrains Mono'",
+                  padding:"9px 32px 9px 12px", outline:"none", cursor:"pointer",
+                  appearance:"none", letterSpacing:".04em",
+                  transition:"border-color .15s, color .15s" }}>
+                <option value="all">All Epics</option>
+                {epics.map(e => (
+                  <option key={e.key} value={e.key}>{e.label}</option>
+                ))}
+              </select>
+              <svg style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }}
+                width="10" height="6" viewBox="0 0 10 6" fill="none">
+                <path d="M1 1l4 4 4-4" stroke={selectedEpic==="all"?"#3A4358":"#7C5CFF"} strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </div>
           </div>
         )}
 
