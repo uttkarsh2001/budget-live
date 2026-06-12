@@ -9,11 +9,18 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "JIRA_EMAIL and JIRA_TOKEN env vars not configured" });
   }
 
-  const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString("base64");
+  const TEAM_ACCOUNTS = [
+    "712020:ca6db9cf-d6a5-473e-84af-009f8d76d495", // Uttkarsh Rastogi
+    "712020:4425e44f-3c52-44cb-9b4f-f4b5bedd05a2", // Vishal Roy
+    "712020:ce719305-f416-47a8-991d-ddddb556a98b", // Yash Jangir
+  ];
 
-  // Fetch all project issues — frontend filters by team via autoMap
+  const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString("base64");
+  const assigneeList = TEAM_ACCOUNTS.map(a => `"${a}"`).join(",");
+  // current work (30d) + completed history (56d) for velocity trend
   const jql = encodeURIComponent(
     `project = H20 AND issuetype in (Story, Bug, Task) ` +
+    `AND (assignee in (${assigneeList}) OR assignee is EMPTY) ` +
     `AND (created >= -30d OR resolutiondate >= -56d) ORDER BY created DESC`
   );
   const fields = "summary,customfield_10016,issuetype,assignee,status,created,resolutiondate,parent";
