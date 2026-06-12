@@ -238,6 +238,9 @@ function App() {
       if(r.ok){ const j=await r.json(); if(j.issues){ data=j.issues; setSrc("live · jira"); } }
     }catch{}
     if(!data){ data=SNAPSHOT; setSrc("snapshot"); }
+    console.log("[Sprint Ledger] Issues loaded:", data.length, "src:", data===SNAPSHOT?"snapshot":"jira");
+    console.log("[Sprint Ledger] Resolved:", data.filter(i=>i.resolved).map(i=>({key:i.key,jira:i.jira,pts:i.points,resolved:i.resolved})));
+    console.log("[Sprint Ledger] Matched to team:", data.filter(i=>autoMap(i.jira,team)).map(i=>({key:i.key,jira:i.jira,member:autoMap(i.jira,team),pts:i.points})));
     setIssues(data);
     /* OPTION A — Jira wins on every refresh: status always re-derived from Jira */
     const st={};
