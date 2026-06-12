@@ -186,8 +186,12 @@ function App() {
   const [jiraMembers, setJiraMembers] = useState([]);
   const [jiraMembersLoading, setJiraMembersLoading] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
-  const setTeamSaved = t=>{ setTeam(t); save("budget:team",t); setNeedsRefresh(true); };
-  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const [draftTeam, setDraftTeam] = useState(null); // edited team before applying
+  const editorTeam = draftTeam || team; // what the editor shows
+  const setTeamDraft = t=>{ setDraftTeam(t); save("budget:team",t); };
+  const applyTeamAndRefresh = ()=>{
+    if(draftTeam){ setTeam(draftTeam); setDraftTeam(null); refresh(draftTeam); }
+  };
 
   const fetchJiraMembers = async ()=>{
     setJiraMembersLoading(true);
@@ -209,11 +213,12 @@ function App() {
     }
   },[loading]);
 
-  async function refresh(){
+  async function refresh(overrideTeam){
     setLoading(true);
     let data=null;
     try{
-      const accountIds = team.filter(m=>m.accountId).map(m=>m.accountId);
+      const t = overrideTeam || team;
+      const accountIds = t.filter(m=>m.accountId).map(m=>m.accountId);
       const acctParam = accountIds.length ? accountIds.join(",") : "all";
       const r = await fetch(`/api/issues?accounts=${encodeURIComponent(acctParam)}`);
       if(r.ok){ const j=await r.json(); if(j.issues){ data=j.issues; setSrc("live · jira"); } }
@@ -364,7 +369,7 @@ function App() {
             </div>
           </div>
           <div style={{ display:"flex", gap:6 }}>
-            <button onClick={()=>{ setTeamEditorOpen(true); setEditingMember(null); setMemberSearch(""); fetchJiraMembers(); }} aria-label="Team" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
+            <button onClick={()=>{ setTeamEditorOpen(true); setEditingMember(null); setMemberSearch(""); setDraftTeam(team); fetchJiraMembers(); }} aria-label="Team" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
               background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>⚙</button>
             <button onClick={refresh} aria-label="Refresh" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
               background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>↻</button>
@@ -700,7 +705,7 @@ function App() {
     )}
     {/* ============ TEAM EDITOR DRAWER ============ */}
     {teamEditorOpen && (
-      <div onClick={()=>{ setTeamEditorOpen(false); setEditingMember(null); if(needsRefresh){ setNeedsRefresh(false); refresh(); } }} style={{ position:"fixed", inset:0, background:"#06080FCC",
+      <div onClick={()=>{ setTeamEditorOpen(false); setEditingMember(null); applyTeamAndRefresh(); }} style={{ position:"fixed", inset:0, background:"#06080FCC",
         backdropFilter:"blur(4px)", zIndex:100, display:"flex", justifyContent:"flex-end" }}>
         <div className="drawer" onClick={e=>e.stopPropagation()} style={{ width:"min(420px, 100vw)", height:"100vh",
           overflowY:"auto", background:"#0A0E18", borderLeft:"1px solid #7C5CFF33", padding:"24px 22px" }}>
@@ -710,7 +715,7 @@ function App() {
               <div style={{ fontSize:10, letterSpacing:".32em", color:"#7C5CFF", textTransform:"uppercase", fontWeight:600 }}>Sprint Ledger</div>
               <div style={{ fontSize:19, fontWeight:700, marginTop:2 }}>{editingMember ? (editingMember==="new"?"Add Member":"Edit Member") : "Team"}</div>
             </div>
-            <button onClick={()=>{ if(editingMember){ setEditingMember(null); } else { setTeamEditorOpen(false); if(needsRefresh){ setNeedsRefresh(false); refresh(); } } }}
+            <button onClick={()=>{ if(editingMember){ setEditingMember(null); } else { setTeamEditorOpen(false); applyTeamAndRefresh(); } }}
               style={{ width:34, height:34, borderRadius:10, border:"1px solid #1B2336",
               background:"#0D111C", color:"#6B7488", cursor:"pointer", fontSize:14 }}>{editingMember?"←":"✕"}</button>
           </div>
@@ -720,11 +725,11 @@ function App() {
             <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
 
               {/* Current team */}
-              {team.length>0 && (
+              {editorTeam.length>0 && (
                 <div>
-                  <div style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", fontWeight:600, marginBottom:8 }}>Your Team · {team.length}</div>
+                  <div style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", fontWeight:600, marginBottom:8 }}>Your Team · {editorTeam.length}</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                    {team.map(m=>(
+                    {editorTeam.map(m=>(
                       <div key={m.id} style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"10px 12px",
                         display:"flex", alignItems:"center", gap:10 }}>
                         {m.avatarUrl ? (
@@ -741,8 +746,8 @@ function App() {
                           background:"transparent", color:"#6B7488", cursor:"pointer", fontSize:11 }}>✎</button>
                         <button onClick={()=>{
                           if(!confirm(`Remove ${m.name}?`)) return;
-                          const next = team.filter(x=>x.id!==m.id);
-                          setTeamSaved(next);
+                          const next = editorTeam.filter(x=>x.id!==m.id);
+                          setTeamDraft(next);
                           setLocalAssign(prev=>{ const n={...prev}; Object.keys(n).forEach(k=>{ if(n[k]===m.id) n[k]=null; }); save("budget:assignments",n); return n; });
                         }} style={{ width:26, height:26, borderRadius:7, border:"1px solid #1B2336",
                           background:"transparent", color:"#FF3B5C88", cursor:"pointer", fontSize:11 }}>✕</button>
@@ -765,23 +770,23 @@ function App() {
                     {jiraMembers
                       .filter(jm=>!memberSearch || jm.displayName.toLowerCase().includes(memberSearch.toLowerCase()))
                       .map(jm=>{
-                        const alreadyAdded = team.some(m=>m.accountId===jm.accountId);
+                        const alreadyAdded = editorTeam.some(m=>m.accountId===jm.accountId);
                         return (
                           <div key={jm.accountId} onClick={()=>{
                             if(alreadyAdded) return;
-                            const usedColors = team.map(m=>m.color);
+                            const usedColors = editorTeam.map(m=>m.color);
                             const color = COLOR_PALETTE.find(c=>!usedColors.includes(c)) || COLOR_PALETTE[0];
                             const parts = jm.displayName.trim().split(/\s+/);
                             const initials = parts.length>=2 ? (parts[0][0]+parts[1][0]).toUpperCase() : jm.displayName.slice(0,2).toUpperCase();
                             const base = jm.displayName.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
                             let id = base; let idx=2;
-                            while(team.some(m=>m.id===id)){ id=base+"-"+idx; idx++; }
+                            while(editorTeam.some(m=>m.id===id)){ id=base+"-"+idx; idx++; }
                             const member = {
                               id, name:jm.displayName, role:"Member", initials, color,
                               budget:20, jiraNames:[jm.displayName.toLowerCase()],
                               accountId:jm.accountId, avatarUrl:jm.avatarUrl
                             };
-                            setTeamSaved([...team, member]);
+                            setTeamDraft([...editorTeam, member]);
                           }} style={{ background:alreadyAdded?"#0D111C":"#0D111C", border:`1px solid ${alreadyAdded?"#7C5CFF33":"#161D2E"}`,
                             borderRadius:12, padding:"9px 12px", display:"flex", alignItems:"center", gap:10,
                             cursor:alreadyAdded?"default":"pointer", opacity:alreadyAdded?.5:1 }}>
@@ -810,7 +815,7 @@ function App() {
               {/* Manual add + Reset */}
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:4 }}>
                 <span onClick={()=>setEditingMember("new")} style={{ fontSize:11, color:"#7C5CFF", cursor:"pointer" }}>+ Add manually</span>
-                <span onClick={()=>{ if(!confirm("Reset team to defaults?")) return; setTeamSaved(DEFAULT_TEAM); }}
+                <span onClick={()=>{ if(!confirm("Reset team to defaults?")) return; setTeamDraft(DEFAULT_TEAM); }}
                   style={{ fontSize:11, color:"#3A4358", cursor:"pointer", textDecoration:"underline" }}>Reset defaults</span>
               </div>
             </div>
@@ -818,12 +823,12 @@ function App() {
             /* ---- Add / Edit form ---- */
             <MemberForm
               initial={editingMember==="new" ? null : editingMember}
-              team={team}
+              team={editorTeam}
               onSave={member=>{
                 if(editingMember==="new"){
-                  setTeamSaved([...team, member]);
+                  setTeamDraft([...editorTeam, member]);
                 } else {
-                  setTeamSaved(team.map(m=>m.id===member.id ? member : m));
+                  setTeamDraft(editorTeam.map(m=>m.id===member.id ? member : m));
                 }
                 setEditingMember(null);
               }}
