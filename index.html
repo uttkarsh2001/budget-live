@@ -171,6 +171,7 @@ function App() {
   const [statuses, setStatuses] = useState({});
   const [picked, setPicked] = useState(null);
   const [devDetail, setDevDetail] = useState(null);
+  const [ticketsOpen, setTicketsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState(()=>load("budget:title","Sprint Board"));
   const [sprintWeeks, setSprintWeeks] = useState(()=>load("budget:sprintWeeks", 2));
@@ -181,6 +182,7 @@ function App() {
   const chipRefs = useRef({});
 
   useEffect(()=>{ refresh(); },[]);
+  useEffect(()=>{ setTicketsOpen(false); },[devDetail]);
   useEffect(()=>{
     if(!loading && rootRef.current){
       gsap.fromTo(rootRef.current.querySelectorAll(".stagger"),
@@ -256,6 +258,8 @@ function App() {
   const ofMember = id => active.filter(i=>memberOf(i)===id);
   const loadOf = id => ofMember(id).reduce((s,i)=>s+pts(i),0);
   const doneOf = id => ofMember(id).filter(i=>statusOf(i.key)==="done").reduce((s,i)=>s+pts(i),0);
+  const doingOf = id => ofMember(id).filter(i=>statusOf(i.key)==="doing").reduce((s,i)=>s+pts(i),0);
+  const todoOf = id => ofMember(id).filter(i=>statusOf(i.key)==="todo").reduce((s,i)=>s+pts(i),0);
   const totalLoad = TEAM.reduce((s,m)=>s+loadOf(m.id),0);
   const totalDone = TEAM.reduce((s,m)=>s+doneOf(m.id),0);
   const excludedCount = Object.values(excluded).filter(Boolean).length;
@@ -557,87 +561,165 @@ function App() {
     {detailMember && (()=>{
       const m=detailMember, mine=ofMember(m.id);
       const l=loadOf(m.id), d=doneOf(m.id), eff=efficiency(m.id);
+      const doing=doingOf(m.id), todo=todoOf(m.id);
       const v=velocity[m.id];
       const b=budgetOf(m.id);
-      const groups=[["doing","In Flight","#3D8BFF"],["todo","Queued","#6B7488"],["done","Shipped",DONE_COLOR]];
+      const remaining = b - l;
+      const over = remaining < 0;
       const avgSize = mine.length? (l/mine.length).toFixed(1) : "—";
+
+      // Prediction
+      const predicted = weeklyAvg(v.weeks) * sprintWeeks;
+      const riskPct = predicted > 0 ? Math.round((l / predicted) * 100) : null;
+      const riskLabel = riskPct===null ? null : riskPct > 100 ? "At Risk" : riskPct > 80 ? "Tight" : "On Track";
+      const riskColor = riskPct===null ? "#4A5468" : riskPct > 100 ? "#FF3B5C" : riskPct > 80 ? "#FFB02E" : DONE_COLOR;
+
+      // Estimated days
+      const avgPtsPerDay = v.cycle && mine.length && l > 0 ? (l / mine.length) / v.cycle : null;
+      const estDoingDays = avgPtsPerDay && doing > 0 ? Math.round(doing / avgPtsPerDay * 10) / 10 : null;
+      const estTodoDays = avgPtsPerDay && todo > 0 ? Math.round(todo / avgPtsPerDay * 10) / 10 : null;
+
+      const groups=[["doing","In Flight","#3D8BFF"],["todo","Queued","#6B7488"],["done","Shipped",DONE_COLOR]];
+
+      // Bandwidth bar segments (proportional)
+      const barTotal = Math.max(b, l);
+      const seg = v => barTotal > 0 ? (v / barTotal) * 100 : 0;
+
       return (
         <div onClick={()=>setDevDetail(null)} style={{ position:"fixed", inset:0, background:"#06080FCC",
           backdropFilter:"blur(4px)", zIndex:100, display:"flex", justifyContent:"flex-end" }}>
           <div className="drawer" onClick={e=>e.stopPropagation()} style={{ width:"min(440px, 100vw)", height:"100vh",
             overflowY:"auto", background:"#0A0E18", borderLeft:`1px solid ${m.color}33`, padding:"24px 22px" }}>
 
+            {/* Header */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
               <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                 <div style={{ width:44, height:44, borderRadius:14, background:`linear-gradient(135deg, ${m.color}33, ${m.color}11)`,
                   border:`1px solid ${m.color}55`, display:"grid", placeItems:"center", fontSize:14, fontWeight:700, color:m.color }}>{m.initials}</div>
                 <div>
                   <div style={{ fontSize:19, fontWeight:700 }}>{m.name}</div>
-                  <div style={{ fontSize:11, color:"#4A5468" }}>{m.role} · {b} pt budget</div>
+                  <div style={{ fontSize:11, color:"#4A5468" }}>{m.role}</div>
                 </div>
               </div>
               <button onClick={()=>setDevDetail(null)} style={{ width:34, height:34, borderRadius:10, border:"1px solid #1B2336",
                 background:"#0D111C", color:"#6B7488", cursor:"pointer", fontSize:14 }}>✕</button>
             </div>
 
-            {/* Stat grid */}
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
-              {[
-                ["Efficiency", eff!=null?eff+"%":"—", eff!=null?(eff>=70?DONE_COLOR:eff>=40?"#FFB02E":"#FF3B5C"):"#4A5468", "done ÷ planned", "efficiency"],
-                ["Velocity", weeklyAvg(v.weeks)+" pts/wk", m.color, "avg active week", "velocity"],
-                ["Avg Cycle", fmtDays(v.cycle), "#3D8BFF", "created → resolved", "cycle"],
-                ["Avg Ticket", avgSize+" pts", "#8B93A7", `${mine.length} tickets`, null],
-              ].map(([label,val,color,sub,tipId])=>(
-                <div key={label} style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"12px 13px" }}>
-                  <div style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", marginBottom:5, display:"flex", alignItems:"center" }}>
-                    {label}{tipId && <InfoTip id={tipId} activeTip={infoTip} setActiveTip={setInfoTip}/>}
+            {/* ===== BANDWIDTH GAUGE ===== */}
+            <div style={{ background:"#0D111C", border:`1px solid ${over?"#FF3B5C33":"#161D2E"}`, borderRadius:16, padding:"16px", marginBottom:14,
+              animation:over?"pulseRed 2s infinite":"none" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:12 }}>
+                <span style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", fontWeight:600 }}>Bandwidth</span>
+                <span style={{ fontFamily:"'JetBrains Mono'", fontSize:22, fontWeight:700, color:over?"#FF3B5C":remaining>5?DONE_COLOR:"#FFB02E" }}>
+                  {over ? `${Math.abs(remaining)} OVER` : `${remaining} pts free`}
+                </span>
+              </div>
+              {/* Segmented bar */}
+              <div style={{ display:"flex", height:18, borderRadius:6, overflow:"hidden", background:"#141A28", marginBottom:10 }}>
+                {d > 0 && <div title={`Done: ${d} pts`} style={{ width:`${seg(d)}%`, background:DONE_COLOR, transition:"width .4s" }}/>}
+                {doing > 0 && <div title={`In Flight: ${doing} pts`} style={{ width:`${seg(doing)}%`, background:"#3D8BFF", transition:"width .4s" }}/>}
+                {todo > 0 && <div title={`Queued: ${todo} pts`} style={{ width:`${seg(todo)}%`, background:"#4A5468", transition:"width .4s" }}/>}
+              </div>
+              {/* Legend */}
+              <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+                {[[DONE_COLOR,"Done",d],["#3D8BFF","In Flight",doing],["#4A5468","Queued",todo],["#1B2336","Free",Math.max(remaining,0)]].map(([c,label,v])=>(
+                  v > 0 && <span key={label} style={{ display:"flex", alignItems:"center", gap:4, fontSize:10, color:"#6B7488" }}>
+                    <span style={{ width:8, height:8, borderRadius:3, background:c }}/>{label} <span style={{ fontFamily:"'JetBrains Mono'", fontWeight:700, color:"#8B93A7" }}>{v}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* ===== PREDICTION CARD ===== */}
+            <div style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:16, padding:"16px", marginBottom:14 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                <span style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", fontWeight:600 }}>Prediction</span>
+                {riskLabel && <span style={{ fontSize:10, fontWeight:700, color:riskColor, fontFamily:"'JetBrains Mono'",
+                  background:riskColor+"18", padding:"3px 8px", borderRadius:6 }}>{riskLabel}</span>}
+              </div>
+              {predicted > 0 ? (
+                <div>
+                  <div style={{ fontSize:13, color:"#E6EAF3", lineHeight:1.5, marginBottom:8 }}>
+                    {predicted >= l
+                      ? <span>On track to deliver <strong style={{ color:DONE_COLOR, fontFamily:"'JetBrains Mono'" }}>{predicted}</strong> of <strong style={{ fontFamily:"'JetBrains Mono'" }}>{l}</strong> pts</span>
+                      : <span>May fall short by <strong style={{ color:"#FF3B5C", fontFamily:"'JetBrains Mono'" }}>~{l - predicted}</strong> pts</span>
+                    }
                   </div>
-                  <div style={{ fontSize:19, fontWeight:700, color, fontFamily:"'JetBrains Mono'" }}>{val}</div>
-                  <div style={{ fontSize:9, color:"#3A4358", marginTop:2 }}>{sub}</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+                    {estDoingDays != null && <div style={{ fontSize:11, color:"#3D8BFF" }}>
+                      In-flight work ({doing} pts) done in <span style={{ fontFamily:"'JetBrains Mono'", fontWeight:700 }}>~{estDoingDays}d</span>
+                    </div>}
+                    {estTodoDays != null && <div style={{ fontSize:11, color:"#6B7488" }}>
+                      Queued work ({todo} pts) needs <span style={{ fontFamily:"'JetBrains Mono'", fontWeight:700 }}>~{estTodoDays}d</span>
+                    </div>}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize:12, color:"#3A4358" }}>Not enough velocity history to predict</div>
+              )}
+            </div>
+
+            {/* ===== COMPACT STATS ===== */}
+            <div style={{ display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+              {[
+                ["Eff", eff!=null?eff+"%":"—", eff!=null?(eff>=70?DONE_COLOR:eff>=40?"#FFB02E":"#FF3B5C"):"#4A5468"],
+                ["Vel", weeklyAvg(v.weeks)+" pts/wk", m.color],
+                ["Cycle", fmtDays(v.cycle), "#3D8BFF"],
+                ["Avg", avgSize+" pts", "#8B93A7"],
+              ].map(([label,val,color])=>(
+                <div key={label} style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:10, padding:"7px 10px", flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:8, color:"#4A5468", textTransform:"uppercase", letterSpacing:".15em" }}>{label}</div>
+                  <div style={{ fontSize:13, fontWeight:700, color, fontFamily:"'JetBrains Mono'", whiteSpace:"nowrap" }}>{val}</div>
                 </div>
               ))}
             </div>
 
-            {/* Velocity trend */}
+            {/* ===== VELOCITY SPARKLINE ===== */}
             <div style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"12px 13px", marginBottom:14 }}>
               <div style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", marginBottom:8 }}>Shipped pts · last {WEEKS} weeks</div>
-              <Spark series={v.weeks} color={m.color} height={56}/>
+              <Spark series={v.weeks} color={m.color} height={48}/>
             </div>
 
-            {/* Capacity */}
-            <div style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14, padding:"12px 13px", marginBottom:14 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
-                <span style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase" }}>This Sprint</span>
-                <span style={{ fontFamily:"'JetBrains Mono'", fontSize:12, fontWeight:700 }}>
-                  <span style={{ color:DONE_COLOR }}>{d}</span><span style={{ color:m.color }}>/{l}</span><span style={{ color:"#3A4358" }}>/{b}</span>
-                </span>
-              </div>
-              <Cells budget={b} planned={l} done={d} color={m.color}/>
-            </div>
-
-            {/* Tickets by status */}
-            {groups.map(([st,label,color])=>{
-              const list=mine.filter(i=>statusOf(i.key)===st);
-              if(!list.length) return null;
-              return (
-                <div key={st} style={{ marginBottom:14 }}>
-                  <div style={{ fontSize:9, letterSpacing:".18em", color, textTransform:"uppercase", fontWeight:700, marginBottom:6 }}>
-                    {label} · {list.length} · {list.reduce((s,i)=>s+pts(i),0)} pts
-                  </div>
-                  {list.map(i=>(
-                    <div key={i.key} onClick={()=>cycleStatus(i.key)} style={{ display:"flex", alignItems:"center", gap:8,
-                      padding:"8px 10px", background:"#0D111C", border:`1px solid ${color}22`, borderRadius:10, marginBottom:5, cursor:"pointer" }}>
-                      <span style={{ fontFamily:"'JetBrains Mono'", fontSize:10, fontWeight:700, color:"#7C5CFF", minWidth:64 }}>{i.key}</span>
-                      <span style={{ flex:1, fontSize:11.5, color:st==="done"?"#4A5468":"#A8B0C2",
-                        textDecoration:st==="done"?"line-through":"none", lineHeight:1.3 }}>{i.summary}</span>
-                      <span style={{ fontFamily:"'JetBrains Mono'", fontSize:11, fontWeight:700, color }}>{pts(i)||"?"}</span>
-                      {isJiraLocked(i) && <span style={{ fontSize:9, opacity:.4 }}>🔒</span>}
-                    </div>
-                  ))}
+            {/* ===== TICKETS (collapsible) ===== */}
+            <div onClick={()=>setTicketsOpen(!ticketsOpen)} style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:14,
+              padding:"12px 14px", cursor:"pointer", marginBottom:ticketsOpen?0:14 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div style={{ display:"flex", gap:10, fontSize:10, color:"#6B7488" }}>
+                  {doing > 0 && <span style={{ color:"#3D8BFF" }}>{mine.filter(i=>statusOf(i.key)==="doing").length} In Flight</span>}
+                  {todo > 0 && <span>{mine.filter(i=>statusOf(i.key)==="todo").length} Queued</span>}
+                  {d > 0 && <span style={{ color:DONE_COLOR }}>{mine.filter(i=>statusOf(i.key)==="done").length} Shipped</span>}
+                  {mine.length===0 && <span style={{ color:"#3A4358" }}>No tickets</span>}
                 </div>
-              );
-            })}
-            {mine.length===0 && <div style={{ textAlign:"center", color:"#3A4358", fontSize:12, padding:"20px 0" }}>No tickets this sprint</div>}
+                <span style={{ fontSize:10, color:"#3A4358", transition:"transform .2s", transform:ticketsOpen?"rotate(180deg)":"none" }}>▾</span>
+              </div>
+            </div>
+            {ticketsOpen && (
+              <div style={{ background:"#0D111C", borderLeft:"1px solid #161D2E", borderRight:"1px solid #161D2E", borderBottom:"1px solid #161D2E",
+                borderRadius:"0 0 14px 14px", padding:"8px 14px 14px", marginBottom:14 }}>
+                {groups.map(([st,label,color])=>{
+                  const list=mine.filter(i=>statusOf(i.key)===st);
+                  if(!list.length) return null;
+                  return (
+                    <div key={st} style={{ marginTop:8 }}>
+                      <div style={{ fontSize:8, letterSpacing:".15em", color, textTransform:"uppercase", fontWeight:700, marginBottom:4 }}>
+                        {label} · {list.reduce((s,i)=>s+pts(i),0)} pts
+                      </div>
+                      {list.map(i=>(
+                        <div key={i.key} onClick={e=>{ e.stopPropagation(); cycleStatus(i.key); }} style={{ display:"flex", alignItems:"center", gap:8,
+                          padding:"6px 8px", border:`1px solid ${color}15`, borderRadius:8, marginBottom:3, cursor:"pointer" }}>
+                          <span style={{ fontFamily:"'JetBrains Mono'", fontSize:9, fontWeight:700, color:"#7C5CFF", minWidth:56 }}>{i.key}</span>
+                          <span style={{ flex:1, fontSize:10.5, color:st==="done"?"#3A4358":"#8B93A7",
+                            textDecoration:st==="done"?"line-through":"none", lineHeight:1.3, overflow:"hidden",
+                            whiteSpace:"nowrap", textOverflow:"ellipsis" }}>{i.summary}</span>
+                          <span style={{ fontFamily:"'JetBrains Mono'", fontSize:10, fontWeight:700, color }}>{pts(i)||"?"}</span>
+                          {isJiraLocked(i) && <span style={{ fontSize:8, opacity:.4 }}>🔒</span>}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       );
