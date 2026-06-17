@@ -177,6 +177,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState(()=>load("budget:title","Sprint Board"));
   const [sprintWeeks, setSprintWeeks] = useState(()=>load("budget:sprintWeeks", 2));
+  const [sprint, setSprint] = useState(null); // { name, startDate, endDate }
   const [infoTip, setInfoTip] = useState(null);
   const [selectedEpic, setSelectedEpic] = useState("all");
   const rootRef = useRef(null);
@@ -194,13 +195,14 @@ function App() {
 
   async function refresh(){
     setLoading(true);
-    let data=null;
+    let data=null, sprintInfo=null;
     try{
       const r = await fetch("/api/issues");
-      if(r.ok){ const j=await r.json(); if(j.issues){ data=j.issues; setSrc("live · jira"); } }
+      if(r.ok){ const j=await r.json(); if(j.issues){ data=j.issues; sprintInfo=j.sprint||null; setSrc("live · jira"); } }
     }catch{}
     if(!data){ data=SNAPSHOT; setSrc("snapshot"); }
     setIssues(data);
+    setSprint(sprintInfo);
     /* OPTION A — Jira wins on every refresh: status always re-derived from Jira */
     const st={};
     data.forEach(i=>{ st[i.key]=mapJiraStatus(i.jiraStatus); });
@@ -299,11 +301,26 @@ function App() {
     const m = TEAM.find(x => x.id === id);
     const v = velocity[id];
     const avg = v ? weeklyAvg(v.weeks) : 0;
-    const computed = avg * sprintWeeks;
+    // Use actual sprint duration when available, otherwise manual sprintWeeks
+    const weeks = sprintTime ? sprintTime.totalDays / 7 : sprintWeeks;
+    const computed = Math.round(avg * weeks);
     return computed > 0 ? computed : (m ? m.budget : 15);
-  }, [velocity, sprintWeeks]);
+  }, [velocity, sprintWeeks, sprintTime]);
 
   const totalBudget = TEAM.reduce((s,m)=>s+budgetOf(m.id),0);
+
+  // Sprint time awareness
+  const sprintTime = useMemo(()=>{
+    if(!sprint || !sprint.startDate || !sprint.endDate) return null;
+    const start = new Date(sprint.startDate).getTime();
+    const end = new Date(sprint.endDate).getTime();
+    const now = Date.now();
+    const totalDays = Math.max(1, Math.round((end - start) / (24*3600*1000)));
+    const daysPassed = Math.max(0, Math.round((now - start) / (24*3600*1000)));
+    const daysLeft = Math.max(0, totalDays - daysPassed);
+    const pct = Math.min(100, Math.round((daysPassed / totalDays) * 100));
+    return { name:sprint.name, start, end, totalDays, daysPassed, daysLeft, pct };
+  }, [sprint]);
 
   const R=52, C=2*Math.PI*R;
   const arcPlanned=Math.min(totalLoad/totalBudget,1)*C*.75;
@@ -334,18 +351,41 @@ function App() {
             <input value={title} onChange={e=>setTitleSaved(e.target.value)}
               style={{ fontSize:24, fontWeight:700, letterSpacing:"-.02em", marginTop:2, background:"transparent",
                 border:"none", outline:"none", color:"#E6EAF3", fontFamily:"inherit", width:"100%", padding:0 }}/>
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4 }}>
-              <span style={{ fontSize:10, color:"#4A5468", fontFamily:"'JetBrains Mono'" }}>Sprint:</span>
-              <select value={sprintWeeks} onChange={e=>{ const w=parseInt(e.target.value); setSprintWeeks(w); save("budget:sprintWeeks", w); }}
-                style={{ background:"#0D111C", border:"1px solid #1B2336", borderRadius:6, color:"#8B93A7", fontSize:10,
-                  fontFamily:"'JetBrains Mono'", padding:"2px 6px", outline:"none", cursor:"pointer" }}>
-                <option value={1}>1 Week</option>
-                <option value={2}>2 Weeks</option>
-                <option value={3}>3 Weeks</option>
-                <option value={4}>4 Weeks</option>
-              </select>
-              <span style={{ fontSize:10, color:"#3A4358", fontFamily:"'JetBrains Mono'" }}>· {src}</span>
-            </div>
+            {sprintTime ? (
+              <div style={{ marginTop:6 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                  <span style={{ fontSize:10, color:"#7C5CFF", fontFamily:"'JetBrains Mono'", fontWeight:600 }}>{sprintTime.name}</span>
+                  <span style={{ fontSize:10, color:"#3A4358", fontFamily:"'JetBrains Mono'" }}>· {src}</span>
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <div style={{ flex:1, height:4, borderRadius:2, background:"#141A28", overflow:"hidden" }}>
+                    <div style={{ width:`${sprintTime.pct}%`, height:"100%", borderRadius:2,
+                      background:sprintTime.daysLeft<=1?"#FF3B5C":sprintTime.daysLeft<=3?"#FFB02E":"#7C5CFF",
+                      transition:"width .4s" }}/>
+                  </div>
+                  <span style={{ fontSize:10, fontFamily:"'JetBrains Mono'", fontWeight:700, whiteSpace:"nowrap",
+                    color:sprintTime.daysLeft<=1?"#FF3B5C":sprintTime.daysLeft<=3?"#FFB02E":"#8B93A7" }}>
+                    {sprintTime.daysLeft}d left
+                  </span>
+                  <span style={{ fontSize:9, color:"#3A4358", fontFamily:"'JetBrains Mono'" }}>
+                    Day {sprintTime.daysPassed}/{sprintTime.totalDays}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4 }}>
+                <span style={{ fontSize:10, color:"#4A5468", fontFamily:"'JetBrains Mono'" }}>Sprint:</span>
+                <select value={sprintWeeks} onChange={e=>{ const w=parseInt(e.target.value); setSprintWeeks(w); save("budget:sprintWeeks", w); }}
+                  style={{ background:"#0D111C", border:"1px solid #1B2336", borderRadius:6, color:"#8B93A7", fontSize:10,
+                    fontFamily:"'JetBrains Mono'", padding:"2px 6px", outline:"none", cursor:"pointer" }}>
+                  <option value={1}>1 Week</option>
+                  <option value={2}>2 Weeks</option>
+                  <option value={3}>3 Weeks</option>
+                  <option value={4}>4 Weeks</option>
+                </select>
+                <span style={{ fontSize:10, color:"#3A4358", fontFamily:"'JetBrains Mono'" }}>· {src}</span>
+              </div>
+            )}
           </div>
           <button onClick={refresh} aria-label="Refresh" style={{ width:38, height:38, borderRadius:11, border:"1px solid #1B2336",
               background:"#0D111C", color:"#8B93A7", fontSize:15, cursor:"pointer", flexShrink:0 }}>↻</button>
@@ -576,16 +616,22 @@ function App() {
       const activeMine = mine.filter(i=>{ const st=statusOf(i.key); return st!=="cancelled" && st!=="qa"; });
       const avgSize = activeMine.length? (l/activeMine.length).toFixed(1) : "—";
 
-      // Prediction (only active work, not QA/cancelled)
-      const predicted = weeklyAvg(v.weeks) * sprintWeeks;
-      const riskPct = predicted > 0 ? Math.round((l / predicted) * 100) : null;
-      const riskLabel = riskPct===null ? null : riskPct > 100 ? "At Risk" : riskPct > 80 ? "Tight" : "On Track";
-      const riskColor = riskPct===null ? "#4A5468" : riskPct > 100 ? "#FF3B5C" : riskPct > 80 ? "#FFB02E" : DONE_COLOR;
+      // Prediction — time-aware when sprint dates are known
+      const velPerDay = weeklyAvg(v.weeks) / 7;
+      const remaining_work = doing + todo; // undone active bandwidth
+      const predicted = sprintTime
+        ? Math.round(velPerDay * sprintTime.daysLeft) + d   // what they can still deliver + already done
+        : weeklyAvg(v.weeks) * sprintWeeks;                 // fallback: flat estimate
+      const canStillDeliver = sprintTime ? Math.round(velPerDay * sprintTime.daysLeft) : predicted - d;
+      const riskPct = canStillDeliver > 0 ? Math.round((remaining_work / canStillDeliver) * 100) : (remaining_work > 0 ? 999 : 0);
+      const riskLabel = riskPct > 100 ? "At Risk" : riskPct > 80 ? "Tight" : "On Track";
+      const riskColor = riskPct > 100 ? "#FF3B5C" : riskPct > 80 ? "#FFB02E" : DONE_COLOR;
 
-      // Estimated days
-      const avgPtsPerDay = v.cycle && activeMine.length && l > 0 ? (l / activeMine.length) / v.cycle : null;
-      const estDoingDays = avgPtsPerDay && doing > 0 ? Math.round(doing / avgPtsPerDay * 10) / 10 : null;
-      const estTodoDays = avgPtsPerDay && todo > 0 ? Math.round(todo / avgPtsPerDay * 10) / 10 : null;
+      // Estimated days for in-flight and queued
+      const estDoingDays = velPerDay > 0 && doing > 0 ? Math.round(doing / velPerDay * 10) / 10 : null;
+      const estTodoDays = velPerDay > 0 && todo > 0 ? Math.round(todo / velPerDay * 10) / 10 : null;
+      const totalEstDays = (estDoingDays||0) + (estTodoDays||0);
+      const willFinish = sprintTime && totalEstDays > 0 ? totalEstDays <= sprintTime.daysLeft : null;
 
       const groups=[["doing","In Flight","#3D8BFF"],["qa","In QA","#A855F7"],["todo","Queued","#6B7488"],["done","Shipped",DONE_COLOR],["cancelled","Cancelled","#FF3B5C"]];
 
@@ -651,27 +697,41 @@ function App() {
             </div>
 
             {/* ===== PREDICTION CARD ===== */}
-            <div style={{ background:"#0D111C", border:"1px solid #161D2E", borderRadius:16, padding:"16px", marginBottom:14 }}>
+            <div style={{ background:"#0D111C", border:`1px solid ${riskColor}22`, borderRadius:16, padding:"16px", marginBottom:14 }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                <span style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", fontWeight:600 }}>Prediction</span>
-                {riskLabel && <span style={{ fontSize:10, fontWeight:700, color:riskColor, fontFamily:"'JetBrains Mono'",
-                  background:riskColor+"18", padding:"3px 8px", borderRadius:6 }}>{riskLabel}</span>}
+                <span style={{ fontSize:9, letterSpacing:".18em", color:"#4A5468", textTransform:"uppercase", fontWeight:600 }}>
+                  {sprintTime ? "Sprint Forecast" : "Prediction"}
+                </span>
+                <span style={{ fontSize:10, fontWeight:700, color:riskColor, fontFamily:"'JetBrains Mono'",
+                  background:riskColor+"18", padding:"3px 8px", borderRadius:6 }}>{riskLabel}</span>
               </div>
-              {predicted > 0 ? (
+              {velPerDay > 0 ? (
                 <div>
                   <div style={{ fontSize:13, color:"#E6EAF3", lineHeight:1.5, marginBottom:8 }}>
-                    {predicted >= l
-                      ? <span>On track to deliver <strong style={{ color:DONE_COLOR, fontFamily:"'JetBrains Mono'" }}>{predicted}</strong> of <strong style={{ fontFamily:"'JetBrains Mono'" }}>{l}</strong> pts</span>
-                      : <span>May fall short by <strong style={{ color:"#FF3B5C", fontFamily:"'JetBrains Mono'" }}>~{l - predicted}</strong> pts</span>
-                    }
+                    {sprintTime ? (
+                      canStillDeliver >= remaining_work
+                        ? <span>Can deliver <strong style={{ color:DONE_COLOR, fontFamily:"'JetBrains Mono'" }}>{canStillDeliver}</strong> pts in <strong style={{ fontFamily:"'JetBrains Mono'" }}>{sprintTime.daysLeft}d</strong> — {remaining_work} pts remaining</span>
+                        : <span>Only <strong style={{ color:"#FFB02E", fontFamily:"'JetBrains Mono'" }}>{canStillDeliver}</strong> pts possible in <strong style={{ fontFamily:"'JetBrains Mono'" }}>{sprintTime.daysLeft}d</strong> — needs <strong style={{ color:"#FF3B5C", fontFamily:"'JetBrains Mono'" }}>{remaining_work}</strong></span>
+                    ) : (
+                      predicted >= l
+                        ? <span>On track to deliver <strong style={{ color:DONE_COLOR, fontFamily:"'JetBrains Mono'" }}>{predicted}</strong> of <strong style={{ fontFamily:"'JetBrains Mono'" }}>{l}</strong> pts</span>
+                        : <span>May fall short by <strong style={{ color:"#FF3B5C", fontFamily:"'JetBrains Mono'" }}>~{l - predicted}</strong> pts</span>
+                    )}
                   </div>
                   <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
                     {estDoingDays != null && <div style={{ fontSize:11, color:"#3D8BFF" }}>
-                      In-flight work ({doing} pts) done in <span style={{ fontFamily:"'JetBrains Mono'", fontWeight:700 }}>~{estDoingDays}d</span>
+                      In-flight ({doing} pts) ≈ <span style={{ fontFamily:"'JetBrains Mono'", fontWeight:700 }}>{estDoingDays}d</span>
+                      {sprintTime && <span style={{ color:estDoingDays<=sprintTime.daysLeft?"#3A4358":"#FF3B5C" }}> {estDoingDays<=sprintTime.daysLeft?"✓":"⚠ won't fit"}</span>}
                     </div>}
                     {estTodoDays != null && <div style={{ fontSize:11, color:"#6B7488" }}>
-                      Queued work ({todo} pts) needs <span style={{ fontFamily:"'JetBrains Mono'", fontWeight:700 }}>~{estTodoDays}d</span>
+                      Queued ({todo} pts) ≈ <span style={{ fontFamily:"'JetBrains Mono'", fontWeight:700 }}>{estTodoDays}d</span>
+                      {sprintTime && <span style={{ color:totalEstDays<=sprintTime.daysLeft?"#3A4358":"#FF3B5C" }}> {totalEstDays<=sprintTime.daysLeft?"✓":"⚠ won't fit"}</span>}
                     </div>}
+                    {sprintTime && totalEstDays > 0 && (
+                      <div style={{ fontSize:11, fontWeight:700, marginTop:4, color:willFinish?DONE_COLOR:"#FF3B5C", fontFamily:"'JetBrains Mono'" }}>
+                        Total ≈ {Math.round(totalEstDays*10)/10}d / {sprintTime.daysLeft}d left {willFinish?"— will finish":"— at risk"}
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (

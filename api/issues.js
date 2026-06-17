@@ -16,6 +16,7 @@ export default async function handler(req, res) {
   ];
 
   const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString("base64");
+  const headers = { Authorization: `Basic ${auth}`, Accept: "application/json" };
   const assigneeList = TEAM_ACCOUNTS.map(a => `"${a}"`).join(",");
   // current sprint tickets + completed history (56d) for velocity trend
   const jql = encodeURIComponent(
@@ -26,15 +27,23 @@ export default async function handler(req, res) {
   const fields = "summary,customfield_10016,issuetype,assignee,status,created,resolutiondate,parent";
 
   try {
-    const r = await fetch(
-      `https://${JIRA_SITE}/rest/api/3/search/jql?jql=${jql}&fields=${fields}&maxResults=100`,
-      { headers: { Authorization: `Basic ${auth}`, Accept: "application/json" } }
-    );
-    if (!r.ok) {
-      const text = await r.text();
-      return res.status(r.status).json({ error: `Jira API ${r.status}: ${text.slice(0, 200)}` });
+    // Fetch issues + active sprint info in parallel
+    const [issuesRes, boardsRes] = await Promise.all([
+      fetch(
+        `https://${JIRA_SITE}/rest/api/3/search/jql?jql=${jql}&fields=${fields}&maxResults=100`,
+        { headers }
+      ),
+      fetch(
+        `https://${JIRA_SITE}/rest/agile/1.0/board?projectKeyOrId=H20&type=scrum`,
+        { headers }
+      ).catch(() => null)
+    ]);
+
+    if (!issuesRes.ok) {
+      const text = await issuesRes.text();
+      return res.status(issuesRes.status).json({ error: `Jira API ${issuesRes.status}: ${text.slice(0, 200)}` });
     }
-    const data = await r.json();
+    const data = await issuesRes.json();
     const issues = (data.issues || []).map(i => ({
       key: i.key,
       summary: i.fields?.summary || "",
@@ -47,8 +56,36 @@ export default async function handler(req, res) {
       epicKey: i.fields?.parent?.key || null,
       epicTitle: i.fields?.parent?.fields?.summary || null,
     }));
+
+    // Try to get active sprint dates
+    let sprint = null;
+    try {
+      if (boardsRes && boardsRes.ok) {
+        const boards = await boardsRes.json();
+        const boardId = boards.values?.[0]?.id;
+        if (boardId) {
+          const sprintRes = await fetch(
+            `https://${JIRA_SITE}/rest/agile/1.0/board/${boardId}/sprint?state=active`,
+            { headers }
+          );
+          if (sprintRes.ok) {
+            const sprintData = await sprintRes.json();
+            const active = sprintData.values?.[0];
+            if (active) {
+              sprint = {
+                name: active.name,
+                startDate: active.startDate,
+                endDate: active.endDate,
+                state: active.state,
+              };
+            }
+          }
+        }
+      }
+    } catch {}
+
     res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
-    return res.status(200).json({ issues, syncedAt: new Date().toISOString() });
+    return res.status(200).json({ issues, sprint, syncedAt: new Date().toISOString() });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
