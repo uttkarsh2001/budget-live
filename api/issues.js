@@ -17,11 +17,11 @@ export default async function handler(req, res) {
 
   const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString("base64");
   const assigneeList = TEAM_ACCOUNTS.map(a => `"${a}"`).join(",");
-  // current work (30d) + completed history (56d) for velocity trend
+  // current sprint tickets + completed history (56d) for velocity trend
   const jql = encodeURIComponent(
     `project = H20 AND issuetype in (Story, Bug, Task) ` +
     `AND (assignee in (${assigneeList}) OR assignee is EMPTY) ` +
-    `AND (created >= -30d OR resolutiondate >= -56d) ORDER BY created DESC`
+    `AND (sprint in openSprints() OR resolutiondate >= -56d) ORDER BY created DESC`
   );
   const fields = "summary,customfield_10016,issuetype,assignee,status,created,resolutiondate,parent";
 

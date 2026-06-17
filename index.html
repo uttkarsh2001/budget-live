@@ -53,7 +53,7 @@ const TEAM = [
 ];
 const DONE_COLOR = "#34F5A4";
 const POINT_OPTS = [1,2,3,5,8];
-const STATUS_CYCLE = { todo:"doing", doing:"done", done:"todo" };
+const STATUS_CYCLE = { todo:"doing", doing:"qa", qa:"done", done:"todo" };
 const WEEKS = 8;
 const SNAPSHOT = [
   { key:"H20-1249", summary:"Re-structuring coupon", points:5, type:"Story", jira:null, jiraStatus:"To Do", created:"2026-06-08T10:00:00Z", resolved:null },
@@ -70,6 +70,8 @@ const save = (k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
 const autoMap = n=>{ if(!n) return null; const l=n.toLowerCase(); for(const m of TEAM) if(m.jiraNames.some(x=>l.includes(x))) return m.id; return null; };
 const mapJiraStatus = s=>{ if(!s) return "todo"; const l=s.toLowerCase();
   if(l.includes("done")||l.includes("closed")||l.includes("resolved")) return "done";
+  if(l.includes("cancel")||l.includes("won't do")||l.includes("won't fix")||l.includes("reject")) return "cancelled";
+  if(l.includes("qa")||l.includes("testing")||l.includes("verification")) return "qa";
   if(l.includes("progress")||l.includes("review")) return "doing"; return "todo"; };
 const chipSize = p=> p>=8?64 : p>=5?56 : p>=3?48 : p>=2?42 : 38;
 const fmtDays = d => d==null ? "—" : d<1 ? "<1d" : `${Math.round(d)}d`;
@@ -256,10 +258,11 @@ function App() {
   });
   const pool = active.filter(i=>!memberOf(i));
   const ofMember = id => active.filter(i=>memberOf(i)===id);
-  const loadOf = id => ofMember(id).reduce((s,i)=>s+pts(i),0);
+  const loadOf = id => ofMember(id).filter(i=>{ const st=statusOf(i.key); return st!=="cancelled" && st!=="qa"; }).reduce((s,i)=>s+pts(i),0);
   const doneOf = id => ofMember(id).filter(i=>statusOf(i.key)==="done").reduce((s,i)=>s+pts(i),0);
   const doingOf = id => ofMember(id).filter(i=>statusOf(i.key)==="doing").reduce((s,i)=>s+pts(i),0);
   const todoOf = id => ofMember(id).filter(i=>statusOf(i.key)==="todo").reduce((s,i)=>s+pts(i),0);
+  const qaOf = id => ofMember(id).filter(i=>statusOf(i.key)==="qa").reduce((s,i)=>s+pts(i),0);
   const totalLoad = TEAM.reduce((s,m)=>s+loadOf(m.id),0);
   const totalDone = TEAM.reduce((s,m)=>s+doneOf(m.id),0);
   const excludedCount = Object.values(excluded).filter(Boolean).length;
@@ -468,20 +471,23 @@ function App() {
               {mine.length>0 && (
                 <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:10 }}>
                   {mine.map(i=>{
-                    const st=statusOf(i.key), isDone=st==="done", isDoing=st==="doing", locked=isJiraLocked(i);
+                    const st=statusOf(i.key), isDone=st==="done", isDoing=st==="doing", isQa=st==="qa", isCancelled=st==="cancelled", locked=isJiraLocked(i);
+                    const chipColor = isDone?DONE_COLOR:isDoing?"#3D8BFF":isQa?"#A855F7":isCancelled?"#FF3B5C55":"#4A5468";
                     return (
                       <div key={i.key} onClick={e=>{ e.stopPropagation(); cycleStatus(i.key); }}
                         onDoubleClick={e=>{ e.stopPropagation(); if(!locked) unassignLocal(i.key); }}
                         title={`${i.summary}${locked?" · assigned in Jira (reassign there)":" · double-tap: back to pool"}`}
                         style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 9px", borderRadius:9, cursor:"pointer",
-                          background:isDone?DONE_COLOR+"14":"#0A0E18",
-                          border:`1px solid ${isDone?DONE_COLOR+"55":isDoing?"#3D8BFF66":"#1B2336"}`, opacity:isDone?.75:1 }}>
+                          background:isDone?DONE_COLOR+"14":isQa?"#A855F714":isCancelled?"#FF3B5C08":"#0A0E18",
+                          border:`1px solid ${isDone?DONE_COLOR+"55":isDoing?"#3D8BFF66":isQa?"#A855F755":isCancelled?"#FF3B5C33":"#1B2336"}`,
+                          opacity:isDone?.75:isCancelled?.4:1 }}>
                         <span style={{ width:6, height:6, borderRadius:"50%",
-                          background:isDone?DONE_COLOR:isDoing?"#3D8BFF":"#4A5468",
+                          background:chipColor,
                           boxShadow:isDone?`0 0 6px ${DONE_COLOR}`:"none" }}/>
                         <span style={{ fontFamily:"'JetBrains Mono'", fontSize:10, fontWeight:700,
-                          color:isDone?DONE_COLOR:"#8B93A7", textDecoration:isDone?"line-through":"none" }}>{i.key.replace("H20-","#")}</span>
-                        <span style={{ fontSize:10, fontWeight:700, fontFamily:"'JetBrains Mono'", color:isDone?DONE_COLOR:m.color }}>{pts(i)||"?"}</span>
+                          color:isDone?DONE_COLOR:isCancelled?"#FF3B5C55":"#8B93A7",
+                          textDecoration:isDone||isCancelled?"line-through":"none" }}>{i.key.replace("H20-","#")}</span>
+                        <span style={{ fontSize:10, fontWeight:700, fontFamily:"'JetBrains Mono'", color:isDone?DONE_COLOR:isCancelled?"#FF3B5C55":m.color }}>{pts(i)||"?"}</span>
                         {locked && <span style={{ fontSize:8, opacity:.5 }}>🔒</span>}
                       </div>
                     );
@@ -561,25 +567,27 @@ function App() {
     {detailMember && (()=>{
       const m=detailMember, mine=ofMember(m.id);
       const l=loadOf(m.id), d=doneOf(m.id), eff=efficiency(m.id);
-      const doing=doingOf(m.id), todo=todoOf(m.id);
+      const doing=doingOf(m.id), todo=todoOf(m.id), qa=qaOf(m.id);
+      const cancelled=ofMember(m.id).filter(i=>statusOf(i.key)==="cancelled").reduce((s,i)=>s+pts(i),0);
       const v=velocity[m.id];
       const b=budgetOf(m.id);
       const remaining = b - l;
       const over = remaining < 0;
-      const avgSize = mine.length? (l/mine.length).toFixed(1) : "—";
+      const activeMine = mine.filter(i=>{ const st=statusOf(i.key); return st!=="cancelled" && st!=="qa"; });
+      const avgSize = activeMine.length? (l/activeMine.length).toFixed(1) : "—";
 
-      // Prediction
+      // Prediction (only active work, not QA/cancelled)
       const predicted = weeklyAvg(v.weeks) * sprintWeeks;
       const riskPct = predicted > 0 ? Math.round((l / predicted) * 100) : null;
       const riskLabel = riskPct===null ? null : riskPct > 100 ? "At Risk" : riskPct > 80 ? "Tight" : "On Track";
       const riskColor = riskPct===null ? "#4A5468" : riskPct > 100 ? "#FF3B5C" : riskPct > 80 ? "#FFB02E" : DONE_COLOR;
 
       // Estimated days
-      const avgPtsPerDay = v.cycle && mine.length && l > 0 ? (l / mine.length) / v.cycle : null;
+      const avgPtsPerDay = v.cycle && activeMine.length && l > 0 ? (l / activeMine.length) / v.cycle : null;
       const estDoingDays = avgPtsPerDay && doing > 0 ? Math.round(doing / avgPtsPerDay * 10) / 10 : null;
       const estTodoDays = avgPtsPerDay && todo > 0 ? Math.round(todo / avgPtsPerDay * 10) / 10 : null;
 
-      const groups=[["doing","In Flight","#3D8BFF"],["todo","Queued","#6B7488"],["done","Shipped",DONE_COLOR]];
+      const groups=[["doing","In Flight","#3D8BFF"],["qa","In QA","#A855F7"],["todo","Queued","#6B7488"],["done","Shipped",DONE_COLOR],["cancelled","Cancelled","#FF3B5C"]];
 
       // Bandwidth bar segments (proportional)
       const barTotal = Math.max(b, l);
@@ -614,7 +622,7 @@ function App() {
                   {over ? `${Math.abs(remaining)} OVER` : `${remaining} pts free`}
                 </span>
               </div>
-              {/* Segmented bar */}
+              {/* Segmented bar — only active bandwidth (excludes QA & cancelled) */}
               <div style={{ display:"flex", height:18, borderRadius:6, overflow:"hidden", background:"#141A28", marginBottom:10 }}>
                 {d > 0 && <div title={`Done: ${d} pts`} style={{ width:`${seg(d)}%`, background:DONE_COLOR, transition:"width .4s" }}/>}
                 {doing > 0 && <div title={`In Flight: ${doing} pts`} style={{ width:`${seg(doing)}%`, background:"#3D8BFF", transition:"width .4s" }}/>}
@@ -628,6 +636,18 @@ function App() {
                   </span>
                 ))}
               </div>
+              {/* QA & Cancelled — shown separately since they don't consume bandwidth */}
+              {(qa > 0 || cancelled > 0) && (
+                <div style={{ display:"flex", gap:12, marginTop:8, paddingTop:8, borderTop:"1px solid #1B2336" }}>
+                  {qa > 0 && <span style={{ display:"flex", alignItems:"center", gap:4, fontSize:10, color:"#A855F7" }}>
+                    <span style={{ width:8, height:8, borderRadius:3, background:"#A855F7" }}/>In QA <span style={{ fontFamily:"'JetBrains Mono'", fontWeight:700 }}>{qa}</span>
+                    <span style={{ fontSize:8, color:"#4A5468" }}>(not blocking)</span>
+                  </span>}
+                  {cancelled > 0 && <span style={{ display:"flex", alignItems:"center", gap:4, fontSize:10, color:"#FF3B5C55" }}>
+                    <span style={{ width:8, height:8, borderRadius:3, background:"#FF3B5C55" }}/>Cancelled <span style={{ fontFamily:"'JetBrains Mono'", fontWeight:700 }}>{cancelled}</span>
+                  </span>}
+                </div>
+              )}
             </div>
 
             {/* ===== PREDICTION CARD ===== */}
@@ -686,8 +706,10 @@ function App() {
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div style={{ display:"flex", gap:10, fontSize:10, color:"#6B7488" }}>
                   {doing > 0 && <span style={{ color:"#3D8BFF" }}>{mine.filter(i=>statusOf(i.key)==="doing").length} In Flight</span>}
+                  {qa > 0 && <span style={{ color:"#A855F7" }}>{mine.filter(i=>statusOf(i.key)==="qa").length} In QA</span>}
                   {todo > 0 && <span>{mine.filter(i=>statusOf(i.key)==="todo").length} Queued</span>}
                   {d > 0 && <span style={{ color:DONE_COLOR }}>{mine.filter(i=>statusOf(i.key)==="done").length} Shipped</span>}
+                  {cancelled > 0 && <span style={{ color:"#FF3B5C55" }}>{mine.filter(i=>statusOf(i.key)==="cancelled").length} Cancelled</span>}
                   {mine.length===0 && <span style={{ color:"#3A4358" }}>No tickets</span>}
                 </div>
                 <span style={{ fontSize:10, color:"#3A4358", transition:"transform .2s", transform:ticketsOpen?"rotate(180deg)":"none" }}>▾</span>
