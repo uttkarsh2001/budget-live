@@ -13,6 +13,7 @@ export default async function handler(req, res) {
     "712020:ca6db9cf-d6a5-473e-84af-009f8d76d495", // Uttkarsh Rastogi
     "712020:4425e44f-3c52-44cb-9b4f-f4b5bedd05a2", // Vishal Roy
     "712020:ce719305-f416-47a8-991d-ddddb556a98b", // Yash Jangir
+    "712020:daa21036-0e2b-44f7-809f-d07d0a58ea02", // Harshit Bidasara
   ];
 
   const auth = Buffer.from(`${JIRA_EMAIL}:${JIRA_TOKEN}`).toString("base64");
